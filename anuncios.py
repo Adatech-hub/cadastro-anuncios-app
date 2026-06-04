@@ -41,7 +41,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 3. FUNÇÕES DE CONEXÃO E REPOSITÓRIO (Google Sheets na Nuvem via Secrets)
+# 3. FUNÇÕES DE CONEXÃO E REPOSITÓRIO (Google Sheets na Nuvem via Link)
 def get_sheets_client():
     scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
@@ -54,7 +54,8 @@ def get_sheets_client():
 def carregar_repositorio():
     try:
         client = get_sheets_client()
-        sheet = client.open("Base de Dados ADATECH").sheet1
+        # Conexão direta e à prova de falhas pela URL exata
+        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
         data = sheet.get_all_records()
         if not data:
             return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto"])
@@ -65,7 +66,8 @@ def carregar_repositorio():
 
 def salvar_no_repositorio(dados):
     client = get_sheets_client()
-    sheet = client.open("Base de Dados ADATECH").sheet1
+    # Conexão direta e à prova de falhas pela URL exata
+    sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
     
     df = carregar_repositorio()
     
