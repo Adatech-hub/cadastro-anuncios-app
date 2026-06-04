@@ -41,12 +41,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 3. FUNÇÕES DE CONEXÃO E REPOSITÓRIO (Google Sheets na Nuvem via Link)
+# 3. FUNÇÕES DE CONEXÃO E REPOSITÓRIO
 def get_sheets_client():
     scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
     
-    # Lê a credencial diretamente do Cofre do Streamlit (Secrets)
     credenciais_dict = json.loads(st.secrets["google_credentials"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(credenciais_dict, scope)
     return gspread.authorize(creds)
@@ -54,19 +53,17 @@ def get_sheets_client():
 def carregar_repositorio():
     try:
         client = get_sheets_client()
-        # Conexão direta e à prova de falhas pela URL exata
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
         data = sheet.get_all_records()
         if not data:
             return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto"])
         return pd.DataFrame(data)
     except Exception as e:
-        st.error(f"Aviso: Não foi possível carregar a planilha. Verifique o cofre de credenciais. Erro: {e}")
+        st.error(f"Aviso: Não foi possível carregar a planilha. Erro: {e}")
         return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto"])
 
 def salvar_no_repositorio(dados):
     client = get_sheets_client()
-    # Conexão direta e à prova de falhas pela URL exata
     sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
     
     df = carregar_repositorio()
@@ -77,23 +74,18 @@ def salvar_no_repositorio(dados):
     else:
         sheet.append_row(list(dados.values()))
 
-# 4. FUNÇÕES DE SUPORTE
+# 4. FUNÇÕES DE SUPORTE E INICIALIZAÇÃO
 def converter_valor(valor_str):
     try:
         if isinstance(valor_str, (float, int)): 
             return float(valor_str)
-        
         valor_str = str(valor_str).strip()
-        
         if valor_str.startswith("="):
             valor_str = valor_str[1:]
-            
         valor_str = valor_str.replace(',', '.')
-            
         if any(op in valor_str for op in ['+', '-', '*', '/']):
             expressao_limpa = re.sub(r'[^0-9.+\-*/()]', '', valor_str)
             return float(eval(expressao_limpa))
-        
         return float(valor_str)
     except:
         return 0.0
@@ -123,6 +115,7 @@ def resetar_campos():
     st.session_state.taxa = "6,00"
     st.session_state.estorno = "0,00"
     st.session_state.tacos = 0.0
+    st.session_state.imposto = 7.3
     if "ultimo_id_carregado" in st.session_state:
         del st.session_state.ultimo_id_carregado
     if "mostrar_sucesso" in st.session_state:
@@ -130,8 +123,39 @@ def resetar_campos():
 
 if "custo" not in st.session_state:
     st.session_state.custo = "0,00"
+if "imposto" not in st.session_state:
+    st.session_state.imposto = 7.3
 
-# 5. TOPO DA PÁGINA
+# 5. LÓGICA DE RECUPERAÇÃO DE DADOS (ANTES DA INTERFACE)
+id_atual = st.session_state.get("id_anuncio", "")
+
+if id_atual and st.session_state.get("ultimo_id_carregado") != id_atual:
+    repo = carregar_repositorio()
+    if not repo.empty and "ID do Anúncio" in repo.columns:
+        dados_existentes = repo[repo["ID do Anúncio"] == id_atual]
+        if not dados_existentes.empty:
+            row = dados_existentes.iloc[0]
+            st.session_state.sku = str(row.get("SKU", "")) if pd.notna(row.get("SKU")) else ""
+            st.session_state.nome_produto = str(row.get("Produto", "")) if pd.notna(row.get("Produto")) else ""
+            st.session_state.titulo = str(row.get("Título", ""))
+            st.session_state.custo = str(row.get("Custo", "0,00")).replace('.', ',')
+            st.session_state.preco = str(row.get("Preço Original", "0,00")).replace('.', ',')
+            st.session_state.desconto = float(row.get("Desconto", 0.0))
+            st.session_state.frete = str(row.get("Frete", "0,00")).replace('.', ',')
+            st.session_state.comissao = float(row.get("Comissão", 16.5))
+            st.session_state.taxa = str(row.get("Taxa Fixa", "6,00")).replace('.', ',')
+            st.session_state.estorno = str(row.get("Estorno", "0,00")).replace('.', ',')
+            st.session_state.tacos = float(row.get("TACOS", 0.0))
+            st.session_state.imposto = float(row.get("Imposto", 7.3))
+            
+            st.session_state.ultimo_id_carregado = id_atual
+            st.session_state.mostrar_sucesso = True
+        else:
+            st.session_state.ultimo_id_carregado = id_atual
+    else:
+        st.session_state.ultimo_id_carregado = id_atual
+
+# 6. TOPO DA PÁGINA
 st.image(URL_LOGO, width=120)
 st.title("Cadastro de Anúncios")
 
@@ -141,7 +165,7 @@ if st.button("🧹 Limpar Dados"):
 
 st.markdown("---")
 
-# 6. BLOCO 1: DADOS DO ANÚNCIO
+# 7. BLOCO 1: DADOS DO ANÚNCIO
 st.subheader("📢 Dados do Anúncio")
 
 col1, col2 = st.columns([1, 2])
@@ -154,37 +178,10 @@ with col2:
     if titulo_anuncio:
         st.caption(f"Caracteres: {len(titulo_anuncio)}/60") 
 
-repo = carregar_repositorio()
-dados_existentes = pd.DataFrame()
-
-if not repo.empty and "ID do Anúncio" in repo.columns:
-    dados_existentes = repo[repo["ID do Anúncio"] == id_input]
-
-v_imposto = 7.3
-
-if id_input and not dados_existentes.empty:
-    row = dados_existentes.iloc[0]
-    if "ultimo_id_carregado" not in st.session_state or st.session_state.ultimo_id_carregado != id_input:
-        st.session_state.sku = str(row.get("SKU", "")) if pd.notna(row.get("SKU")) else ""
-        st.session_state.nome_produto = str(row.get("Produto", "")) if pd.notna(row.get("Produto")) else ""
-        st.session_state.titulo = row["Título"]
-        st.session_state.custo = str(row["Custo"]).replace('.', ',')
-        st.session_state.preco = str(row["Preço Original"]).replace('.', ',')
-        st.session_state.desconto = float(row["Desconto"])
-        st.session_state.frete = str(row["Frete"]).replace('.', ',')
-        st.session_state.comissao = float(row["Comissão"])
-        st.session_state.taxa = str(row["Taxa Fixa"]).replace('.', ',')
-        st.session_state.estorno = str(row["Estorno"]).replace('.', ',')
-        st.session_state.tacos = float(row.get("TACOS", 0.0))
-        v_imposto = float(row.get("Imposto", 7.3))
-        st.session_state.ultimo_id_carregado = id_input
-        st.session_state.mostrar_sucesso = True
-        st.rerun()
-
-if st.session_state.get("mostrar_sucesso") and id_input:
+if st.session_state.get("mostrar_sucesso") and id_input == st.session_state.get("ultimo_id_carregado"):
     st.success("Dados recuperados da nuvem.")
 
-# 7. BLOCO NOVO: DADOS DO PRODUTO
+# 8. BLOCO NOVO: DADOS DO PRODUTO
 st.markdown("---")
 st.subheader("📦 Dados do Produto")
 
@@ -203,7 +200,7 @@ custo_produto = converter_valor(st.session_state.custo)
 st.caption("Quanto você pagou pelo produto. **Dica:** Aceita fórmulas (ex: `=29,15*2` ou `15+10,5`). Pressione **Enter** para calcular.")
 st.markdown("---")
 
-# 8. BLOCO 2: DADOS DA VENDA
+# 9. BLOCO 2: DADOS DA VENDA
 st.subheader("💸 Dados da Venda")
 
 col_preco, col_desc, col_final = st.columns(3)
@@ -240,9 +237,9 @@ with col_tacos:
     porcentagem_tacos = st.number_input("Custo de Publicidade TACOS (%)", min_value=0.0, max_value=100.0, step=0.1, key="tacos")
 
 with col_imposto:
-    imposto_porcentagem = st.number_input("Imposto sobre NF (%)", min_value=0.0, value=v_imposto, step=0.1)
+    imposto_porcentagem = st.number_input("Imposto sobre NF (%)", min_value=0.0, step=0.1, key="imposto")
 
-# 9. PROCESSAMENTO MATEMÁTICO
+# 10. PROCESSAMENTO MATEMÁTICO
 custo_frete = converter_valor(custo_frete_str)
 taxa_fixa_venda = converter_valor(taxa_fixa_venda_str)
 estorno_ml = converter_valor(estorno_ml_str)
@@ -255,7 +252,7 @@ custo_total_saidas = custo_produto + custo_frete + valor_comissao + valor_impost
 lucro_liquido = (preco_final + estorno_ml) - custo_total_saidas
 margem_contribuicao = arredondar_customizado((lucro_liquido / preco_final) * 100) if preco_final > 0 else 0.0
 
-# 10. BLOCO 3: RESULTADOS E ANÁLISE
+# 11. BLOCO 3: RESULTADOS E ANÁLISE
 st.divider()
 st.subheader("📈 Resultados")
 
@@ -314,7 +311,7 @@ df_detalhamento = pd.DataFrame({
 
 st.table(df_detalhamento)
 
-# 11. BOTÃO SALVAR
+# 12. BOTÃO SALVAR
 st.markdown("---")
 if st.button("💾 Salvar Anúncio na Nuvem"):
     faltantes = []
