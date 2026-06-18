@@ -5,7 +5,7 @@ import gspread
 import json
 from oauth2client.service_account import ServiceAccountCredentials
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime  # <--- NOVA BIBLIOTECA PARA PEGAR A DATA/HORA
+from datetime import datetime
 
 # 1. CONFIGURAÇÃO DA PÁGINA
 URL_LOGO = "https://raw.githubusercontent.com/Adatech-hub/calculadora-mkt/main/Logo.png"
@@ -19,67 +19,42 @@ st.set_page_config(
 # 2. CSS PARA ESTILIZAÇÃO
 st.markdown("""
     <style>
-    /* Fundo principal do aplicativo */
     .stApp { background-color: #FFFFFF; }
-    
-    /* Fundo do menu lateral forçado para cinza claro */
-    [data-testid="stSidebar"] {
-        background-color: #F4F6F9 !important;
-    }
-    
-    /* Cor do texto geral */
+    [data-testid="stSidebar"] { background-color: #F4F6F9 !important; }
     h1, h2, h3, p, span, label { color: #1E1E1E !important; }
-    
-    /* Estilização dos Botões */
     div.stButton > button {
-        color: #1E1E1E !important; 
-        background-color: #F0F2F6 !important; 
-        border: 1px solid #1E1E1E !important; 
-        border-radius: 5px;
-        width: 100%;
-        font-weight: bold;
+        color: #1E1E1E !important; background-color: #F0F2F6 !important; 
+        border: 1px solid #1E1E1E !important; border-radius: 5px; width: 100%; font-weight: bold;
     }
-    div.stButton > button:hover {
-        color: #FFFFFF !important;
-        background-color: #1E1E1E !important;
-    }
-    
-    /* Cor de foco nos campos de digitação (Verde) */
+    div.stButton > button:hover { color: #FFFFFF !important; background-color: #1E1E1E !important; }
     div[data-testid="stTextInput"] :focus, div[data-testid="stNumberInput"] :focus {
-        border-color: #28a745 !important;
-        box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25) !important;
+        border-color: #28a745 !important; box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25) !important;
     }
-    
-    /* ESTILIZAÇÃO ESPECÍFICA DE CAMPOS BLOQUEADOS (Venda Real e Data) */
     div[data-testid="stTextInput"] input[disabled] {
-        background-color: #FFF2CC !important; 
-        color: #B8860B !important; 
-        -webkit-text-fill-color: #B8860B !important; 
-        font-weight: bold;
+        background-color: #FFF2CC !important; color: #B8860B !important; 
+        -webkit-text-fill-color: #B8860B !important; font-weight: bold;
     }
-    
-    /* Cor dos números grandes nas métricas */
     [data-testid="stMetricValue"] { color: #1E1E1E !important; }
-    
-    /* Fundo da Tabela de Detalhamento */
     .stTable { background-color: #F8F9FA; color: #1E1E1E; }
     </style>
 """, unsafe_allow_html=True)
 
-# 3. MENU LATERAL (SIDEBAR)
+# 3. MENU LATERAL
 st.sidebar.image(URL_LOGO, width=150)
 st.sidebar.title("Navegação")
-menu_selecionado = st.sidebar.radio("Selecione a ferramenta:", ["Cadastro de Anúncios", "Curva ABC Meli"])
+menu_selecionado = st.sidebar.radio("Selecione a ferramenta:", ["Cadastro de Anúncios", "Cadastro de Produto", "Despesas a pagar", "Curva ABC Meli"])
 st.sidebar.markdown("---")
 
 # =====================================================================
-# FUNÇÕES DE SUPORTE
+# FUNÇÕES DE SUPORTE E CONVERSÃO
 # =====================================================================
+@st.cache_resource(ttl=3600)
 def get_sheets_client():
     scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
     credenciais_dict = json.loads(st.secrets["google_credentials"])
-    return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_dict(credenciais_dict, scope))
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(credenciais_dict, scope)
+    return gspread.authorize(creds)
 
 def converter_valor(valor):
     if pd.isna(valor) or valor == "": return 0.0
@@ -88,52 +63,88 @@ def converter_valor(valor):
     return float(re.sub(r'[^\d\.\-]', '', v_str) or 0)
 
 def formatar_moeda_ui(valor):
-    return f"{converter_valor(valor):.2f}".replace('.', ',')
+    numero = converter_valor(valor)
+    return f"{numero:.2f}".replace('.', ',')
 
 def arredondar_customizado(valor):
     try: return float(Decimal(str(valor)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
     except: return 0.0
+
+def converter_data_sheets(valor):
+    if pd.isna(valor) or str(valor).strip().lower() in ["nan", ""]: return ""
+    try:
+        if isinstance(valor, (int, float)) or str(valor).isdigit():
+            return pd.to_datetime(float(valor), unit='D', origin='1899-12-30').strftime("%d/%m/%Y")
+        return str(valor).strip()
+    except: return str(valor).strip()
+
+def normalizar_nf(nf):
+    n = re.sub(r'[^a-zA-Z0-9]', '', str(nf)).upper()
+    return n.lstrip('0') if n.lstrip('0') else n
+
+def buscar_produto_por_sku(sku_busca):
+    if not sku_busca: return None
+    try:
+        client = get_sheets_client()
+        try: sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Produtos")
+        except: return None
+        data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        if data:
+            df_p = pd.DataFrame(data)
+            if not df_p.empty and "SKU" in df_p.columns:
+                df_p["SKU"] = df_p["SKU"].astype(str).str.strip()
+                res = df_p[df_p["SKU"] == str(sku_busca).strip()]
+                if not res.empty: return res.iloc[0]
+    except: pass
+    return None
+
+def puxar_dados_produto_por_sku_trigger():
+    sku_digitado = st.session_state.get("sku", "").strip()
+    if sku_digitado:
+        info_prod = buscar_produto_por_sku(sku_digitado)
+        if info_prod is not None:
+            st.session_state.nome_produto = str(info_prod.get("Produto", ""))
+            st.session_state.custo = formatar_moeda_ui(info_prod.get("Custo", 0))
+
+def puxar_dados_produto_cadastro_trigger():
+    sku_digitado = st.session_state.get("sku_p", "").strip()
+    if sku_digitado:
+        info_prod = buscar_produto_por_sku(sku_digitado)
+        if info_prod is not None:
+            st.session_state.nome_p = str(info_prod.get("Produto", ""))
+            st.session_state.custo_p = formatar_moeda_ui(info_prod.get("Custo", 0))
 
 # =====================================================================
 # MÓDULO 1: CADASTRO DE ANÚNCIOS
 # =====================================================================
 if menu_selecionado == "Cadastro de Anúncios":
     
-    # --- FUNÇÕES DE NUVEM ---
     def carregar_repositorio():
         try:
-            sheet = get_sheets_client().open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
+            client = get_sheets_client()
+            sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            # Adicionado o campo Última Atualização
-            if not data:
-                return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização"])
+            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização"])
             return pd.DataFrame(data)
         except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização"])
 
     def salvar_no_repositorio(dados):
-        sheet = get_sheets_client().open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
+        client = get_sheets_client()
+        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
         df = carregar_repositorio()
-        
-        valores_formatados = []
-        for valor in dados.values():
-            if isinstance(valor, float): valores_formatados.append(f"{valor:.2f}".replace('.', ','))
-            else: valores_formatados.append(str(valor))
-        
+        valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
         if not df.empty and "ID do Anúncio" in df.columns and dados["ID do Anúncio"] in df["ID do Anúncio"].values:
             idx = df[df["ID do Anúncio"] == dados["ID do Anúncio"]].index[0]
-            # Mudei de M para N para englobar a nova coluna 14
             sheet.update(range_name=f'A{idx+2}:N{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
         else:
             sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
 
-    # --- CONTROLES DE ESTADO ---
     def processar_calculo_custo():
-        texto_atual = st.session_state.custo
-        if texto_atual.startswith("=") or any(op in texto_atual for op in ['+', '-', '*', '/']):
-            st.session_state.custo = formatar_moeda_ui(texto_atual)
+        texto_atual = str(st.session_state.custo)
+        if texto_atual.startswith("="): st.session_state.custo = formatar_moeda_ui(texto_atual.replace("=", ""))
 
     def resetar_campos():
-        campos = ["id_anuncio", "sku", "nome_produto", "titulo"]
+        campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao"]
         for c in campos: st.session_state[c] = ""
         st.session_state.custo = "0,00"
         st.session_state.preco = "0,00"
@@ -144,13 +155,14 @@ if menu_selecionado == "Cadastro de Anúncios":
         st.session_state.estorno = "0,00"
         st.session_state.tacos = 0.0
         st.session_state.imposto = 7.3
-        st.session_state.ultima_atualizacao = ""
         if "ultimo_id_carregado" in st.session_state: del st.session_state.ultimo_id_carregado
         if "mostrar_sucesso" in st.session_state: del st.session_state.mostrar_sucesso
 
     if "custo" not in st.session_state: st.session_state.custo = "0,00"
-    if "imposto" not in st.session_state: st.session_state.imposto = 7.3
+    if "preco" not in st.session_state: st.session_state.preco = "0,00"
     if "ultima_atualizacao" not in st.session_state: st.session_state.ultima_atualizacao = ""
+    if "nome_produto" not in st.session_state: st.session_state.nome_produto = ""
+    if "sku" not in st.session_state: st.session_state.sku = ""
 
     id_atual = st.session_state.get("id_anuncio", "")
     if id_atual and st.session_state.get("ultimo_id_carregado") != id_atual:
@@ -162,31 +174,22 @@ if menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.sku = str(row.get("SKU", "")) if pd.notna(row.get("SKU")) else ""
                 st.session_state.nome_produto = str(row.get("Produto", "")) if pd.notna(row.get("Produto")) else ""
                 st.session_state.titulo = str(row.get("Título", ""))
-                
                 st.session_state.custo = formatar_moeda_ui(row.get("Custo", 0))
                 st.session_state.preco = formatar_moeda_ui(row.get("Preço Original", 0))
                 st.session_state.frete = formatar_moeda_ui(row.get("Frete", 0))
                 st.session_state.taxa = formatar_moeda_ui(row.get("Taxa Fixa", 0))
                 st.session_state.estorno = formatar_moeda_ui(row.get("Estorno", 0))
-                
                 st.session_state.desconto = float(converter_valor(row.get("Desconto", 0)))
                 st.session_state.comissao = float(converter_valor(row.get("Comissão", 16.5)))
                 st.session_state.tacos = float(converter_valor(row.get("TACOS", 0)))
                 st.session_state.imposto = float(converter_valor(row.get("Imposto", 7.3)))
-                
-                # Resgata a data de atualização
-                st.session_state.ultima_atualizacao = str(row.get("Última Atualização", ""))
-                
+                st.session_state.ultima_atualizacao = converter_data_sheets(row.get("Última Atualização", ""))
                 st.session_state.ultimo_id_carregado = id_atual
                 st.session_state.mostrar_sucesso = True
-            else:
-                st.session_state.ultimo_id_carregado = id_atual
-        else:
-            st.session_state.ultimo_id_carregado = id_atual
+            else: st.session_state.ultimo_id_carregado = id_atual
+        else: st.session_state.ultimo_id_carregado = id_atual
 
-    # --- INTERFACE DE USUÁRIO ---
-    col_vazia1, col_conteudo, col_vazia2 = st.columns([1, 2, 1])
-    
+    col_vazia1, col_conteudo, col_vazia2 = st.columns([0.5, 3, 0.5])
     with col_conteudo:
         st.title("Cadastro de Anúncios")
         if st.button("🧹 Limpar Dados"):
@@ -195,21 +198,14 @@ if menu_selecionado == "Cadastro de Anúncios":
 
         st.markdown("---")
         st.subheader("📢 Dados do Anúncio")
-        
-        # DIVIDIDO EM 3 COLUNAS AGORA
         col1, col2, col3 = st.columns([1.5, 3, 1.5])
-        with col1: 
-            id_input = st.text_input("ID do Anúncio (MLB)", placeholder="Ex: MLB123456789", key="id_anuncio")
+        with col1: id_input = st.text_input("ID do Anúncio (MLB)", placeholder="Ex: MLB123456789", key="id_anuncio")
         with col2:
             titulo_anuncio = st.text_input("Título do Anúncio", key="titulo")
             if titulo_anuncio: 
-                if len(titulo_anuncio) > 60:
-                    st.caption(f"⚠️ Caracteres: {len(titulo_anuncio)} (Acima do limite de 60 do ML)")
-                else:
-                    st.caption(f"Caracteres: {len(titulo_anuncio)}/60") 
-        with col3:
-            # CAMPO COM A DATA DA ÚLTIMA ATUALIZAÇÃO (Bloqueado)
-            st.text_input("Última Atualização", value=st.session_state.get("ultima_atualizacao", ""), disabled=True)
+                if len(titulo_anuncio) > 60: st.caption(f"⚠️ Caracteres: {len(titulo_anuncio)} (Acima do limite de 60 do ML)")
+                else: st.caption(f"Caracteres: {len(titulo_anuncio)}/60") 
+        with col3: st.text_input("Última Atualização", value=st.session_state.ultima_atualizacao, disabled=True)
 
         if st.session_state.get("mostrar_sucesso") and id_input == st.session_state.get("ultimo_id_carregado"):
             st.success("Dados recuperados da nuvem.")
@@ -217,7 +213,7 @@ if menu_selecionado == "Cadastro de Anúncios":
         st.markdown("---")
         st.subheader("📦 Dados do Produto")
         col_sku, col_prod, col_custo = st.columns([1, 2, 1])
-        with col_sku: sku_anuncio = st.text_input("SKU do Produto", placeholder="Ex: SKU-12345-X", key="sku")
+        with col_sku: sku_anuncio = st.text_input("SKU do Produto", placeholder="Ex: SKU-12345-X", key="sku", on_change=puxar_dados_produto_por_sku_trigger)
         with col_prod: nome_produto = st.text_input("Produto", placeholder="Ex: Camiseta Térmica", key="nome_produto")
         with col_custo: st.text_input("Preço de Custo (R$)", key="custo", on_change=processar_calculo_custo)
 
@@ -231,7 +227,6 @@ if menu_selecionado == "Cadastro de Anúncios":
         
         preco_original = converter_valor(preco_original_str)
         preco_final = preco_original * (1 - (porcentagem_desconto / 100))
-        
         with col_final: st.text_input("Venda Real (R$)", value=f"{preco_final:.2f}", disabled=True)
 
         col_comissao, col_frete, col_taxa = st.columns(3)
@@ -259,9 +254,7 @@ if menu_selecionado == "Cadastro de Anúncios":
         st.divider()
         st.subheader("📈 Resultados")
         if titulo_anuncio:
-            texto_resultado = f"**Anúncio:** {titulo_anuncio}"
-            if sku_anuncio: texto_resultado += f" | **SKU:** {sku_anuncio}"
-            st.markdown(texto_resultado)
+            st.markdown(f"**Anúncio:** {titulo_anuncio}" + (f" | **SKU:** {sku_anuncio}" if sku_anuncio else ""))
 
         col_res_custo, col_res_lucro, col_res_margem = st.columns(3)
         with col_res_custo: st.metric("Custo Total", f"R$ {custo_total_saidas:.2f}")
@@ -273,164 +266,387 @@ if menu_selecionado == "Cadastro de Anúncios":
         else: st.success("✅ Margem excelente para o seu produto!")
 
         st.write("### Detalhamento Financeiro")
-
         denominador = preco_final if preco_final > 0 else 1.0
-        pct_preco = arredondar_customizado((preco_final / denominador) * 100)
-        pct_custo = arredondar_customizado((custo_produto / denominador) * 100)
-        pct_comissao = arredondar_customizado((valor_comissao / denominador) * 100)
-        pct_frete = arredondar_customizado((custo_frete / denominador) * 100)
-        pct_imposto = arredondar_customizado((valor_imposto / denominador) * 100)
-        pct_taxa = arredondar_customizado((taxa_fixa_venda / denominador) * 100)
-        pct_tacos = arredondar_customizado((valor_tacos / denominador) * 100)
-        pct_estorno = arredondar_customizado((estorno_ml / denominador) * 100)
-        pct_lucro = arredondar_customizado((lucro_liquido / denominador) * 100)
-
         df_detalhamento = pd.DataFrame({
-            "Descrição": ["Preço Final (Venda Real)", "Custo Produto", "Comissão", "Frete", "Imposto", "Taxa Fixa", "Publicidade (TACOS)", "Estorno", "LUCRO LÍQUIDO"],
-            "Valor": [
-                f"R$ {preco_final:.2f}", f"R$ {custo_produto:.2f}", f"R$ {valor_comissao:.2f}",
-                f"R$ {custo_frete:.2f}", f"R$ {valor_imposto:.2f}", f"R$ {taxa_fixa_venda:.2f}",
-                f"R$ {valor_tacos:.2f}", f"R$ {estorno_ml:.2f}", f"R$ {lucro_liquido:.2f}"
-            ],
-            "Percentual (%)": [
-                f"{pct_preco:.2f}%", f"{pct_custo:.2f}%", f"{pct_comissao:.2f}%",
-                f"{pct_frete:.2f}%", f"{pct_imposto:.2f}%", f"{pct_taxa:.2f}%",
-                f"{pct_tacos:.2f}%", f"{pct_estorno:.2f}%", f"{pct_lucro:.2f}%"
-            ]
+            "Descrição": ["Preço Final", "Custo Produto", "Comissão", "Frete", "Imposto", "Taxa Fixa", "TACOS", "Estorno", "LUCRO LÍQUIDO"],
+            "Valor": [f"R$ {preco_final:.2f}", f"R$ {custo_produto:.2f}", f"R$ {valor_comissao:.2f}", f"R$ {custo_frete:.2f}", f"R$ {valor_imposto:.2f}", f"R$ {taxa_fixa_venda:.2f}", f"R$ {valor_tacos:.2f}", f"R$ {estorno_ml:.2f}", f"R$ {lucro_liquido:.2f}"],
+            "Percentual (%)": [f"{(preco_final/denominador*100):.2f}%", f"{(custo_produto/denominador*100):.2f}%", f"{(valor_comissao/denominador*100):.2f}%", f"{(custo_frete/denominador*100):.2f}%", f"{(valor_imposto/denominador*100):.2f}%", f"{(taxa_fixa_venda/denominador*100):.2f}%", f"{(valor_tacos/denominador*100):.2f}%", f"{(estorno_ml/denominador*100):.2f}%", f"{(lucro_liquido/denominador*100):.2f}%"]
         })
-
         st.table(df_detalhamento)
 
         st.markdown("---")
         if st.button("💾 Salvar Anúncio na Nuvem"):
             faltantes = [f for f, v in [("ID do Anúncio", id_input), ("Título", titulo_anuncio), ("Preço de Custo", custo_produto)] if not v or (isinstance(v, float) and v <= 0)]
             if not faltantes:
-                # GERA A DATA E HORA EXATA DO SALVAMENTO
-                agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                
+                data_apenas = datetime.now().strftime("%d/%m/%Y")
+                st.session_state.ultima_atualizacao = data_apenas
                 dados_salvar = {
-                    "ID do Anúncio": id_input, "SKU": sku_anuncio, "Produto": nome_produto, "Título": titulo_anuncio, 
+                    "ID do Anúncio": id_input, "SKU": sku_anuncio, "Produto": st.session_state.nome_produto, "Título": titulo_anuncio, 
                     "Custo": custo_produto, "Preço Original": preco_original, "Desconto": porcentagem_desconto, 
                     "Frete": custo_frete, "Comissão": comissao_mkt_porcentagem, "Taxa Fixa": taxa_fixa_venda, 
-                    "Estorno": estorno_ml, "TACOS": porcentagem_tacos, "Imposto": imposto_porcentagem,
-                    "Última Atualização": agora # NOVA COLUNA SENDO ENVIADA
+                    "Estorno": estorno_ml, "TACOS": porcentagem_tacos, "Imposto": imposto_porcentagem, "Última Atualização": data_apenas
                 }
                 try:
                     salvar_no_repositorio(dados_salvar)
-                    # Atualiza a interface instantaneamente com a nova data
-                    st.session_state.ultima_atualizacao = agora
-                    st.success("✅ Dados salvos com sucesso na nuvem!")
+                    st.success(f"✅ Dados salvos com sucesso na nuvem! ({data_apenas})")
+                    st.rerun()
                 except Exception as e: st.error(f"❌ Erro ao salvar na planilha: {e}")
             else: st.error(f"❌ Erro ao salvar: Preencha os campos obrigatórios: {', '.join(faltantes)}")
 
 # =====================================================================
-# MÓDULO 2: CURVA ABC MELI
+# MÓDULO 2: CADASTRO DE PRODUTO
+# =====================================================================
+elif menu_selecionado == "Cadastro de Produto":
+    
+    if "limpar_produto" not in st.session_state: st.session_state.limpar_produto = False
+    if "sucesso_produto" not in st.session_state: st.session_state.sucesso_produto = ""
+
+    if st.session_state.limpar_produto:
+        st.session_state.sku_p = ""
+        st.session_state.nome_p = ""
+        st.session_state.custo_p = "0,00"
+        st.session_state.limpar_produto = False
+
+    def carregar_repositorio_produtos():
+        try:
+            client = get_sheets_client()
+            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+            try: sheet = doc.worksheet("Produtos")
+            except:
+                sheet = doc.add_worksheet(title="Produtos", rows="1000", cols="5")
+                sheet.append_row(["SKU", "Produto", "Custo"], value_input_option="USER_ENTERED")
+            data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+            return pd.DataFrame(data) if data else pd.DataFrame(columns=["SKU", "Produto", "Custo"])
+        except: return pd.DataFrame(columns=["SKU", "Produto", "Custo"])
+
+    def salvar_produto_no_repositorio(dados):
+        df = carregar_repositorio_produtos()
+        client = get_sheets_client()
+        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Produtos")
+        valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
+        if not df.empty and "SKU" in df.columns:
+            df["SKU"] = df["SKU"].astype(str).str.strip()
+            sku_busca = str(dados["SKU"]).strip()
+            if sku_busca in df["SKU"].values:
+                idx = df[df["SKU"] == sku_busca].index[0]
+                sheet.update(range_name=f'A{idx+2}:C{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+                return
+        sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
+
+    def processar_calculo_custo_produto():
+        texto_atual = str(st.session_state.custo_p)
+        if texto_atual.startswith("="): st.session_state.custo_p = formatar_moeda_ui(texto_atual.replace("=", ""))
+
+    if "custo_p" not in st.session_state: st.session_state.custo_p = "0,00"
+    if "nome_p" not in st.session_state: st.session_state.nome_p = ""
+    if "sku_p" not in st.session_state: st.session_state.sku_p = ""
+
+    col_vazia1, col_conteudo, col_vazia2 = st.columns([0.5, 3, 0.5])
+    with col_conteudo:
+        st.title("Cadastro de Mestre de Produtos")
+        st.markdown("---")
+        
+        if st.session_state.sucesso_produto:
+            st.success(st.session_state.sucesso_produto)
+            st.session_state.sucesso_produto = ""
+        
+        sku_p = st.text_input("SKU do Produto", key="sku_p", on_change=puxar_dados_produto_cadastro_trigger)
+        nome_p = st.text_input("Nome do Produto", key="nome_p")
+        custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto)
+        v_custo_p = converter_valor(st.session_state.custo_p)
+        
+        st.markdown("---")
+        if st.button("💾 Gravar Ficha do Produto"):
+            if sku_p.strip() and nome_p.strip() and v_custo_p > 0:
+                dados_prod = {"SKU": sku_p.strip(), "Produto": nome_p.strip(), "Custo": v_custo_p}
+                try:
+                    salvar_produto_no_repositorio(dados_prod)
+                    st.session_state.sucesso_produto = f"✅ Produto {sku_p} registrado com sucesso!"
+                    st.session_state.limpar_produto = True
+                    st.rerun() 
+                except Exception as e: st.error(f"❌ Erro ao gravar produto: {e}")
+            else: st.error("❌ Por favor, preencha todos os campos obrigatórios.")
+
+# =====================================================================
+# MÓDULO 3: DESPESAS A PAGAR 
+# =====================================================================
+elif menu_selecionado == "Despesas a pagar":
+    
+    if "limpar_despesas" not in st.session_state: st.session_state.limpar_despesas = False
+    if "sucesso_despesas" not in st.session_state: st.session_state.sucesso_despesas = ""
+    if "sucesso_pagamento" not in st.session_state: st.session_state.sucesso_pagamento = ""
+    if "num_parcelas_p" not in st.session_state: st.session_state.num_parcelas_p = 1
+    if "exibir_grid_despesas" not in st.session_state: st.session_state.exibir_grid_despesas = False
+    if "valor_total_despesa" not in st.session_state: st.session_state.valor_total_despesa = "0,00"
+    if "nota_existente" not in st.session_state: st.session_state.nota_existente = False
+
+    if st.session_state.limpar_despesas:
+        st.session_state.forn_p = ""
+        st.session_state.nf_p = ""
+        st.session_state.valor_total_despesa = "0,00"
+        st.session_state.num_parcelas_p = 1
+        st.session_state.exibir_grid_despesas = False
+        st.session_state.nota_existente = False
+        for k in list(st.session_state.keys()):
+            if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
+        st.session_state.limpar_despesas = False
+
+    def carregar_repositorio_despesas():
+        try:
+            client = get_sheets_client()
+            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+            try: sheet = doc.worksheet("Despesas")
+            except:
+                sheet = doc.add_worksheet(title="Despesas", rows="1000", cols="8")
+                sheet.append_row(["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status"], value_input_option="USER_ENTERED")
+            data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+            return pd.DataFrame(data) if data else pd.DataFrame(columns=["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status"])
+        except: return pd.DataFrame(columns=["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status"])
+
+    def salvar_despesas_no_repositorio(lista_parcelas, fornecedor, num_nf):
+        df = carregar_repositorio_despesas()
+        client = get_sheets_client()
+        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Despesas")
+        
+        if len(sheet.row_values(1)) < 8 or sheet.row_values(1)[7] != "Status":
+            sheet.update_cell(1, 8, "Status")
+
+        if not df.empty:
+            df["Fornecedor_Match"] = df["Nome do Fornecedor"].astype(str).str.strip().str.upper()
+            df["NF_Match"] = df["Número da Nota Fiscal"].apply(normalizar_nf)
+            
+            forn_str = str(fornecedor).strip().upper()
+            nf_str = normalizar_nf(num_nf)
+            mask = (df["Fornecedor_Match"] == forn_str) & (df["NF_Match"] == nf_str)
+            indices_para_deletar = df[mask].index.tolist()
+            
+            linhas_sheet = [i + 2 for i in indices_para_deletar]
+            for linha in sorted(linhas_sheet, reverse=True):
+                sheet.delete_rows(linha) 
+                
+        valores_inserir = []
+        for dados in lista_parcelas:
+            valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
+            valores_inserir.append(valores_formatados)
+            
+        if valores_inserir:
+            sheet.append_rows(valores_inserir, value_input_option="USER_ENTERED")
+
+    def marcar_como_pago(forn, nf, parc):
+        df = carregar_repositorio_despesas()
+        if not df.empty:
+            df["F_Match"] = df["Nome do Fornecedor"].astype(str).str.strip().str.upper()
+            df["NF_Match"] = df["Número da Nota Fiscal"].apply(normalizar_nf)
+            df["P_Match"] = df["Parcela"].astype(str).str.strip()
+            
+            mask = (df["F_Match"] == str(forn).strip().upper()) & (df["NF_Match"] == normalizar_nf(nf)) & (df["P_Match"] == str(parc).strip())
+            indices = df[mask].index.tolist()
+            
+            if indices:
+                linha_real = indices[0] + 2 
+                client = get_sheets_client()
+                sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Despesas")
+                if len(sheet.row_values(1)) < 8 or sheet.row_values(1)[7] != "Status": sheet.update_cell(1, 8, "Status")
+                sheet.update_cell(linha_real, 8, "Pago")
+                return True
+        return False
+
+    def checar_nota_cadastrada():
+        f = st.session_state.get("forn_p", "").strip()
+        nf = st.session_state.get("nf_p", "").strip()
+        
+        if f and nf:
+            df_desp = carregar_repositorio_despesas()
+            if not df_desp.empty:
+                df_desp["F_Match"] = df_desp["Nome do Fornecedor"].astype(str).str.strip().str.upper()
+                df_desp["NF_Match"] = df_desp["Número da Nota Fiscal"].apply(normalizar_nf)
+                
+                f_upper = f.upper()
+                nf_norm = normalizar_nf(nf)
+                df_enc = df_desp[(df_desp["F_Match"] == f_upper) & (df_desp["NF_Match"] == nf_norm)]
+                
+                if not df_enc.empty:
+                    st.session_state.nota_existente = True
+                    st.session_state.valor_total_despesa = formatar_moeda_ui(df_enc.iloc[0]["Valor Total da Nota"])
+                    st.session_state.num_parcelas_p = len(df_enc)
+                    st.session_state.exibir_grid_despesas = True
+                    
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
+                        
+                    for i, (_, row) in enumerate(df_enc.iterrows()):
+                        st.session_state[f"d_val_{i}"] = formatar_moeda_ui(row["Valor da Parcela"])
+                        st.session_state[f"d_venc_{i}"] = converter_data_sheets(row["Data de Vencimento"])
+                else:
+                    st.session_state.nota_existente = False
+                    st.session_state.exibir_grid_despesas = False
+            else:
+                st.session_state.nota_existente = False
+                st.session_state.exibir_grid_despesas = False
+        else:
+            st.session_state.nota_existente = False
+            st.session_state.exibir_grid_despesas = False
+
+    def processar_calculo_total_despesa():
+        texto_atual = str(st.session_state.valor_total_despesa)
+        if texto_atual.startswith("="): st.session_state.valor_total_despesa = formatar_moeda_ui(texto_atual.replace("=", ""))
+
+    col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
+    with col_conteudo:
+        st.title("Controle de Despesas a Pagar")
+        
+        tab_lista, tab_lancamento = st.tabs(["📋 Títulos a Pagar (Pendentes)", "➕ Novo Lançamento / Edição"])
+        
+        with tab_lista:
+            if st.session_state.sucesso_pagamento:
+                st.success(st.session_state.sucesso_pagamento)
+                st.session_state.sucesso_pagamento = ""
+
+            st.write("Abaixo estão todas as contas pendentes organizadas pela data de vencimento.")
+            df_todas = carregar_repositorio_despesas()
+            
+            if not df_todas.empty:
+                if "Status" not in df_todas.columns: df_todas["Status"] = "Pendente"
+                df_pendentes = df_todas[df_todas["Status"] != "Pago"].copy()
+                
+                if not df_pendentes.empty:
+                    df_pendentes["Venc_Fmt"] = df_pendentes["Data de Vencimento"].apply(converter_data_sheets)
+                    df_pendentes["Data_Sort"] = pd.to_datetime(df_pendentes["Venc_Fmt"], format="%d/%m/%Y", errors="coerce")
+                    df_pendentes = df_pendentes.sort_values(by="Data_Sort", ascending=True)
+                    
+                    st.markdown("---")
+                    c1, c2, c3, c4, c5, c6 = st.columns([3, 2, 1, 2, 2, 2])
+                    c1.write("**Fornecedor**")
+                    c2.write("**Nota Fiscal**")
+                    c3.write("**Parcela**")
+                    c4.write("**Valor (R$)**")
+                    c5.write("**Vencimento**")
+                    c6.write("**Ação**")
+                    st.markdown("---")
+                    
+                    for idx, row in df_pendentes.iterrows():
+                        c1, c2, c3, c4, c5, c6 = st.columns([3, 2, 1, 2, 2, 2])
+                        c1.write(str(row["Nome do Fornecedor"]))
+                        c2.write(str(row["Número da Nota Fiscal"]))
+                        c3.write(str(row["Parcela"]))
+                        c4.write(f"R$ {float(converter_valor(row['Valor da Parcela'])):.2f}".replace('.', ','))
+                        c5.write(str(row["Venc_Fmt"]))
+                        
+                        btn_key = f"pagar_{idx}_{row['Número da Nota Fiscal']}_{row['Parcela']}"
+                        if c6.button("✅ Pagar", key=btn_key):
+                            if marcar_como_pago(row["Nome do Fornecedor"], row["Número da Nota Fiscal"], row["Parcela"]):
+                                st.session_state.sucesso_pagamento = f"✅ Pagamento da parcela {row['Parcela']} (NF: {row['Número da Nota Fiscal']}) confirmado com sucesso!"
+                                st.rerun()
+                            else:
+                                st.error("Erro ao localizar parcela para baixar.")
+                else:
+                    st.info("🎉 Fantástico! Não há despesas pendentes no momento.")
+            else:
+                st.info("Nenhuma despesa lançada ainda.")
+
+        with tab_lancamento:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.session_state.sucesso_despesas:
+                st.success(st.session_state.sucesso_despesas)
+                st.session_state.sucesso_despesas = ""
+            
+            c_forn, c_nf = st.columns(2)
+            fornecedor = c_forn.text_input("Nome do Fornecedor", key="forn_p", on_change=checar_nota_cadastrada)
+            num_nf = c_nf.text_input("Número da Nota Fiscal", key="nf_p", on_change=checar_nota_cadastrada)
+            
+            if fornecedor.strip() and num_nf.strip():
+                if st.session_state.nota_existente:
+                    st.info("ℹ️ Esta nota fiscal já foi lançada no sistema! As informações e parcelas foram recuperadas abaixo.")
+                else:
+                    st.success("✨ Novo lançamento. Siga para gerar parcelas.")
+
+            c_val, c_parc = st.columns(2)
+            with c_val: st.text_input("Valor Total da Nota (R$)", key="valor_total_despesa", on_change=processar_calculo_total_despesa)
+            with c_parc: num_parcelas = st.number_input("Número de Parcelas", min_value=1, max_value=72, step=1, key="num_parcelas_p")
+            
+            v_total_nota = converter_valor(st.session_state.valor_total_despesa)
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if not st.session_state.nota_existente:
+                if st.button("🔄 Gerar Parcelas"):
+                    if fornecedor.strip() and num_nf.strip() and v_total_nota > 0:
+                        st.session_state.exibir_grid_despesas = True
+                        for k in list(st.session_state.keys()):
+                            if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
+                    else: st.error("❌ Preencha todos os dados obrigatórios e certifique-se de que o valor é maior que zero.")
+            else:
+                if st.button("🔄 Recalcular / Alterar Parcelas"):
+                    if v_total_nota > 0:
+                        st.session_state.exibir_grid_despesas = True
+                        for k in list(st.session_state.keys()):
+                            if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
+                    else: st.error("❌ Valor total inválido.")
+                
+            if st.session_state.exibir_grid_despesas:
+                st.markdown("---")
+                val_calculado_parcela = v_total_nota / num_parcelas
+                lista_dados_salvamento = []
+                
+                for i in range(int(num_parcelas)):
+                    col_label, col_v_parc, col_venc = st.columns([1.5, 2.5, 2.5])
+                    with col_label: st.markdown(f"<p style='margin-top:35px;'><b>Parcela {i+1} / {int(num_parcelas)}</b></p>", unsafe_allow_html=True)
+                    with col_v_parc:
+                        k_val = f"d_val_{i}"
+                        if k_val not in st.session_state: st.session_state[k_val] = f"{val_calculado_parcela:.2f}".replace('.', ',')
+                        val_digitado = st.text_input(f"Valor da Parcela {i+1} (R$)", key=k_val)
+                    with col_venc:
+                        k_venc = f"d_venc_{i}"
+                        if k_venc not in st.session_state: st.session_state[k_venc] = datetime.now().strftime("%d/%m/%Y")
+                        venc_digitado = st.text_input(f"Vencimento {i+1} (DD/MM/AAAA)", key=k_venc)
+                    
+                    lista_dados_salvamento.append({
+                        "Fornecedor": fornecedor.strip(), "NF": num_nf.strip(), "Total": v_total_nota,
+                        "Parcela": f"{i+1}/{int(num_parcelas)}", "Valor_Parc": val_digitado,
+                        "Vencimento": venc_digitado, "Registro": datetime.now().strftime("%d/%m/%Y"),
+                        "Status": "Pendente" 
+                    })
+                    
+                st.markdown("---")
+                if st.button("💾 Salvar Despesas"):
+                    try:
+                        for item in lista_dados_salvamento: item["Valor_Parc"] = converter_valor(item["Valor_Parc"])
+                        salvar_despesas_no_repositorio(lista_dados_salvamento, fornecedor, num_nf)
+                        st.session_state.sucesso_despesas = "✅ Despesas salvas com sucesso!"
+                        st.session_state.limpar_despesas = True
+                        st.rerun() 
+                    except Exception as e: st.error(f"❌ Erro ao salvar: {e}")
+
+# =====================================================================
+# MÓDULO 4: CURVA ABC MELI
 # =====================================================================
 elif menu_selecionado == "Curva ABC Meli":
-    st.title("Análise de Curva ABC - Mercado Livre")
-    st.write("Faça o upload da sua planilha de vendas exportada do Mercado Livre para classificar o desempenho dos seus anúncios.")
-    
-    arquivo_excel = st.file_uploader("Arraste ou selecione a planilha (ex: vendas_meli.xlsx)", type=["xlsx", "xls", "csv"])
-    
+    st.title("Análise de Curva ABC")
+    arquivo_excel = st.file_uploader("Upload planilha Mercado Livre", type=["xlsx", "xls", "csv"])
     if arquivo_excel is not None:
         try:
-            if arquivo_excel.name.endswith('.csv'):
-                df_bruto = pd.read_csv(arquivo_excel, header=None, dtype=str)
+            if arquivo_excel.name.endswith('.csv'): df_bruto = pd.read_csv(arquivo_excel, header=None, dtype=str)
             else:
-                try:
-                    df_bruto = pd.read_excel(arquivo_excel, sheet_name="Relatório", header=None)
-                except:
-                    df_bruto = pd.read_excel(arquivo_excel, header=None)
+                try: df_bruto = pd.read_excel(arquivo_excel, sheet_name="Relatório", header=None)
+                except: df_bruto = pd.read_excel(arquivo_excel, header=None)
             
-            linha_cabecalho = 0
-            for i in range(min(20, len(df_bruto))):
-                valores_linha = [str(val).strip() for val in df_bruto.iloc[i].tolist()]
-                if "ID do anúncio" in valores_linha or "Vendas brutas (BRL)" in valores_linha:
-                    linha_cabecalho = i
-                    break
-            
+            linha_cabecalho = next(i for i in range(min(20, len(df_bruto))) if "ID do anúncio" in [str(val).strip() for val in df_bruto.iloc[i].tolist()] or "Vendas brutas (BRL)" in [str(val).strip() for val in df_bruto.iloc[i].tolist()])
             df = df_bruto.iloc[linha_cabecalho+1:].copy()
             df.columns = [str(col).strip() for col in df_bruto.iloc[linha_cabecalho].tolist()]
-            df.reset_index(drop=True, inplace=True)
             
-            if "ID do anúncio" not in df.columns or "Vendas brutas (BRL)" not in df.columns:
-                st.error("⚠️ As colunas 'ID do anúncio' e/ou 'Vendas brutas (BRL)' não foram encontradas.")
-            else:
-                def limpar_moeda(valor):
-                    if pd.isna(valor): return 0.0
-                    if isinstance(valor, (int, float)): return float(valor)
-                    
-                    v_str = str(valor).strip()
-                    if ',' in v_str:
-                        v_str = v_str.replace('.', '')
-                        v_str = v_str.replace(',', '.')
-                    
-                    v_str = re.sub(r'[^\d\.\-]', '', v_str)
-                    try:
-                        return float(v_str)
-                    except:
-                        return 0.0
-                
-                df["Vendas brutas (BRL)"] = df["Vendas brutas (BRL)"].apply(limpar_moeda)
-                
-                agg_funcs = {"Vendas brutas (BRL)": "sum"}
-                if "Anúncio" in df.columns: agg_funcs["Anúncio"] = "first"
-                elif "Título do anúncio" in df.columns: agg_funcs["Título do anúncio"] = "first"
-                elif "Título" in df.columns: agg_funcs["Título"] = "first"
-                if "SKU" in df.columns: agg_funcs["SKU"] = "first"
-                
-                df_agrupado = df.groupby("ID do anúncio").agg(agg_funcs).reset_index()
-                
-                df_vendas = df_agrupado[df_agrupado["Vendas brutas (BRL)"] > 0].copy()
-                df_sem_vendas = df_agrupado[df_agrupado["Vendas brutas (BRL)"] <= 0].copy()
-                
-                df_vendas = df_vendas.sort_values(by="Vendas brutas (BRL)", ascending=False).reset_index(drop=True)
-                valor_total_vendas = df_vendas["Vendas brutas (BRL)"].sum()
-                
-                if valor_total_vendas > 0:
-                    df_vendas["% do Total"] = (df_vendas["Vendas brutas (BRL)"] / valor_total_vendas) * 100
-                    df_vendas["% Acumulado"] = df_vendas["% do Total"].cumsum()
-                    
-                    def classificar_abc(perc_acumulado):
-                        if perc_acumulado <= 80: return 'A'
-                        elif perc_acumulado <= 95: return 'B'
-                        else: return 'C'
-                    
-                    df_vendas["Curva"] = df_vendas["% Acumulado"].apply(classificar_abc)
-                else:
-                    df_vendas["% do Total"] = 0.0
-                    df_vendas["% Acumulado"] = 0.0
-                    df_vendas["Curva"] = "C"
-
-                if not df_sem_vendas.empty:
-                    df_sem_vendas["% do Total"] = 0.0
-                    df_sem_vendas["% Acumulado"] = 0.0
-                    df_sem_vendas["Curva"] = "Sem Vendas"
-                    df_final = pd.concat([df_vendas, df_sem_vendas], ignore_index=True)
-                else:
-                    df_final = df_vendas
-                
-                colunas_exibicao = ["ID do anúncio"]
-                if "Anúncio" in df.columns: colunas_exibicao.append("Anúncio")
-                elif "Título do anúncio" in df.columns: colunas_exibicao.append("Título do anúncio")
-                elif "Título" in df.columns: colunas_exibicao.append("Título")
-                if "SKU" in df.columns: colunas_exibicao.append("SKU")
-                
-                colunas_exibicao.extend(["Vendas brutas (BRL)", "% do Total", "Curva"])
-                df_exibicao = df_final[colunas_exibicao].copy()
-                
-                df_exibicao_formatado = df_exibicao.copy()
-                df_exibicao_formatado["Vendas brutas (BRL)"] = df_exibicao_formatado["Vendas brutas (BRL)"].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                df_exibicao_formatado["% do Total"] = df_exibicao_formatado["% do Total"].apply(lambda x: f"{x:.2f}%".replace(".", ","))
-                
-                st.markdown("---")
-                col_res1, col_res2, col_res3 = st.columns(3)
-                with col_res1: st.metric("Total Faturado", f"R$ {valor_total_vendas:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                with col_res2: st.metric("Total de Anúncios", len(df_final))
-                with col_res3: st.metric("Anúncios Curva A", len(df_vendas[df_vendas["Curva"] == 'A']))
-                
-                st.subheader("Resultados da Classificação ABC")
-                st.dataframe(df_exibicao_formatado, use_container_width=True, hide_index=True)
-                
-        except Exception as e:
-            st.error(f"Ocorreu um erro inesperado ao processar o arquivo: {e}")
+            def limpar_moeda(valor):
+                if pd.isna(valor): return 0.0
+                v_str = str(valor).strip().replace('.', '').replace(',', '.')
+                try: return float(re.sub(r'[^\d\.\-]', '', v_str))
+                except: return 0.0
+            
+            df["Vendas brutas (BRL)"] = df["Vendas brutas (BRL)"].apply(limpar_moeda)
+            df_agrupado = df.groupby("ID do anúncio").agg({"Vendas brutas (BRL)": "sum"}).reset_index()
+            df_vendas = df_agrupado[df_agrupado["Vendas brutas (BRL)"] > 0].sort_values(by="Vendas brutas (BRL)", ascending=False).reset_index(drop=True)
+            
+            total_vendas = df_vendas["Vendas brutas (BRL)"].sum()
+            df_vendas["% do Total"] = (df_vendas["Vendas brutas (BRL)"] / total_vendas) * 100
+            df_vendas["Curva"] = df_vendas["% do Total"].cumsum().apply(lambda x: 'A' if x <= 80 else ('B' if x <= 95 else 'C'))
+            
+            st.metric("Total Faturado", f"R$ {total_vendas:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.dataframe(df_vendas)
+        except Exception as e: st.error(f"Erro: {e}")
