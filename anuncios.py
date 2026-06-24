@@ -27,7 +27,7 @@ st.markdown("""
         border: 1px solid #1E1E1E !important; border-radius: 5px; width: 100%; font-weight: bold;
     }
     div.stButton > button:hover { color: #FFFFFF !important; background-color: #1E1E1E !important; }
-    div[data-testid="stTextInput"] :focus, div[data-testid="stNumberInput"] :focus {
+    div[data-testid="stTextInput"] :focus, div[data-testid="stNumberInput"] :focus, div[data-testid="stSelectbox"] :focus {
         border-color: #28a745 !important; box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25) !important;
     }
     div[data-testid="stTextInput"] input[disabled] {
@@ -82,6 +82,25 @@ def normalizar_nf(nf):
     n = re.sub(r'[^a-zA-Z0-9]', '', str(nf)).upper()
     return n.lstrip('0') if n.lstrip('0') else n
 
+# TRADUTOR REVERSO PARA BUG DAS DATAS DO GOOGLE SHEETS
+def corrigir_parcela_data(valor):
+    if pd.isna(valor) or valor == "": return ""
+    try:
+        # Se for um código serial de data criado acidentalmente pelo Sheets (ex: 46023)
+        v_float = float(valor)
+        if v_float > 40000:
+            data = pd.to_datetime(v_float, unit='D', origin='1899-12-30')
+            return f"{data.day} de {data.month}"
+    except:
+        pass
+    
+    # Se ainda estiver como "1/2" em texto, moderniza para "1 de 2"
+    v_str = str(valor).strip()
+    if re.match(r'^\d{1,2}/\d{1,2}$', v_str):
+        return v_str.replace("/", " de ")
+        
+    return v_str
+
 def buscar_produto_por_sku(sku_busca):
     if not sku_busca: return None
     try:
@@ -113,6 +132,7 @@ def puxar_dados_produto_cadastro_trigger():
         if info_prod is not None:
             st.session_state.nome_p = str(info_prod.get("Produto", ""))
             st.session_state.custo_p = formatar_moeda_ui(info_prod.get("Custo", 0))
+            st.session_state.data_ref_p = converter_data_sheets(info_prod.get("Data de Referência", ""))
 
 # =====================================================================
 # MÓDULO 1: CADASTRO DE ANÚNCIOS
@@ -305,6 +325,7 @@ elif menu_selecionado == "Cadastro de Produto":
         st.session_state.sku_p = ""
         st.session_state.nome_p = ""
         st.session_state.custo_p = "0,00"
+        st.session_state.data_ref_p = ""
         st.session_state.limpar_produto = False
 
     def carregar_repositorio_produtos():
@@ -314,22 +335,27 @@ elif menu_selecionado == "Cadastro de Produto":
             try: sheet = doc.worksheet("Produtos")
             except:
                 sheet = doc.add_worksheet(title="Produtos", rows="1000", cols="5")
-                sheet.append_row(["SKU", "Produto", "Custo"], value_input_option="USER_ENTERED")
+                sheet.append_row(["SKU", "Produto", "Custo", "Data de Referência"], value_input_option="USER_ENTERED")
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            return pd.DataFrame(data) if data else pd.DataFrame(columns=["SKU", "Produto", "Custo"])
-        except: return pd.DataFrame(columns=["SKU", "Produto", "Custo"])
+            return pd.DataFrame(data) if data else pd.DataFrame(columns=["SKU", "Produto", "Custo", "Data de Referência"])
+        except: return pd.DataFrame(columns=["SKU", "Produto", "Custo", "Data de Referência"])
 
     def salvar_produto_no_repositorio(dados):
         df = carregar_repositorio_produtos()
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Produtos")
+        
+        if sheet.col_count < 4: sheet.add_cols(4 - sheet.col_count)
+        if len(sheet.row_values(1)) < 4 or sheet.row_values(1)[3] != "Data de Referência": sheet.update_cell(1, 4, "Data de Referência")
+
         valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
+        
         if not df.empty and "SKU" in df.columns:
             df["SKU"] = df["SKU"].astype(str).str.strip()
             sku_busca = str(dados["SKU"]).strip()
             if sku_busca in df["SKU"].values:
                 idx = df[df["SKU"] == sku_busca].index[0]
-                sheet.update(range_name=f'A{idx+2}:C{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+                sheet.update(range_name=f'A{idx+2}:D{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
                 return
         sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
 
@@ -340,6 +366,7 @@ elif menu_selecionado == "Cadastro de Produto":
     if "custo_p" not in st.session_state: st.session_state.custo_p = "0,00"
     if "nome_p" not in st.session_state: st.session_state.nome_p = ""
     if "sku_p" not in st.session_state: st.session_state.sku_p = ""
+    if "data_ref_p" not in st.session_state: st.session_state.data_ref_p = ""
 
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.5, 3, 0.5])
     with col_conteudo:
@@ -350,22 +377,28 @@ elif menu_selecionado == "Cadastro de Produto":
             st.success(st.session_state.sucesso_produto)
             st.session_state.sucesso_produto = ""
         
-        sku_p = st.text_input("SKU do Produto", key="sku_p", on_change=puxar_dados_produto_cadastro_trigger)
-        nome_p = st.text_input("Nome do Produto", key="nome_p")
-        custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto)
-        v_custo_p = converter_valor(st.session_state.custo_p)
-        
+        c1, c2 = st.columns(2)
+        with c1: sku_p = st.text_input("SKU do Produto", key="sku_p", on_change=puxar_dados_produto_cadastro_trigger)
+        with c2: nome_p = st.text_input("Nome do Produto", key="nome_p")
+            
+        c3, c4 = st.columns(2)
+        with c3:
+            custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto)
+            v_custo_p = converter_valor(st.session_state.custo_p)
+        with c4:
+            data_ref_p = st.text_input("Data de Referência (Data da Compra)", key="data_ref_p", placeholder="Ex: 10/05/2026")
+            
         st.markdown("---")
         if st.button("💾 Gravar Ficha do Produto"):
-            if sku_p.strip() and nome_p.strip() and v_custo_p > 0:
-                dados_prod = {"SKU": sku_p.strip(), "Produto": nome_p.strip(), "Custo": v_custo_p}
+            if sku_p.strip() and nome_p.strip() and v_custo_p > 0 and data_ref_p.strip():
+                dados_prod = {"SKU": sku_p.strip(), "Produto": nome_p.strip(), "Custo": v_custo_p, "Data de Referência": data_ref_p.strip()}
                 try:
                     salvar_produto_no_repositorio(dados_prod)
                     st.session_state.sucesso_produto = f"✅ Produto {sku_p} registrado com sucesso!"
                     st.session_state.limpar_produto = True
                     st.rerun() 
                 except Exception as e: st.error(f"❌ Erro ao gravar produto: {e}")
-            else: st.error("❌ Por favor, preencha todos os campos obrigatórios.")
+            else: st.error("❌ Por favor, preencha todos os campos obrigatórios (incluindo a Data de Referência).")
 
 # =====================================================================
 # MÓDULO 3: DESPESAS A PAGAR 
@@ -375,10 +408,12 @@ elif menu_selecionado == "Despesas a pagar":
     if "limpar_despesas" not in st.session_state: st.session_state.limpar_despesas = False
     if "sucesso_despesas" not in st.session_state: st.session_state.sucesso_despesas = ""
     if "sucesso_pagamento" not in st.session_state: st.session_state.sucesso_pagamento = ""
+    if "sucesso_historico" not in st.session_state: st.session_state.sucesso_historico = ""
     if "num_parcelas_p" not in st.session_state: st.session_state.num_parcelas_p = 1
     if "exibir_grid_despesas" not in st.session_state: st.session_state.exibir_grid_despesas = False
     if "valor_total_despesa" not in st.session_state: st.session_state.valor_total_despesa = "0,00"
     if "nota_existente" not in st.session_state: st.session_state.nota_existente = False
+    if "pagando_id" not in st.session_state: st.session_state.pagando_id = None
 
     if st.session_state.limpar_despesas:
         st.session_state.forn_p = ""
@@ -387,6 +422,7 @@ elif menu_selecionado == "Despesas a pagar":
         st.session_state.num_parcelas_p = 1
         st.session_state.exibir_grid_despesas = False
         st.session_state.nota_existente = False
+        st.session_state.pagando_id = None
         for k in list(st.session_state.keys()):
             if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
         st.session_state.limpar_despesas = False
@@ -397,19 +433,28 @@ elif menu_selecionado == "Despesas a pagar":
             doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
             try: sheet = doc.worksheet("Despesas")
             except:
-                sheet = doc.add_worksheet(title="Despesas", rows="1000", cols="8")
-                sheet.append_row(["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status"], value_input_option="USER_ENTERED")
+                sheet = doc.add_worksheet(title="Despesas", rows="1000", cols="9")
+                sheet.append_row(["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status", "Forma de Pagamento"], value_input_option="USER_ENTERED")
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            return pd.DataFrame(data) if data else pd.DataFrame(columns=["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status"])
-        except: return pd.DataFrame(columns=["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status"])
+            
+            df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status", "Forma de Pagamento"])
+            
+            # TRADUTOR REVERSO: Atua imediatamente logo após puxar da nuvem
+            if not df.empty and "Parcela" in df.columns:
+                df["Parcela"] = df["Parcela"].apply(corrigir_parcela_data)
+                
+            return df
+        except: 
+            return pd.DataFrame(columns=["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status", "Forma de Pagamento"])
 
     def salvar_despesas_no_repositorio(lista_parcelas, fornecedor, num_nf):
         df = carregar_repositorio_despesas()
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Despesas")
         
-        if len(sheet.row_values(1)) < 8 or sheet.row_values(1)[7] != "Status":
-            sheet.update_cell(1, 8, "Status")
+        if sheet.col_count < 9: sheet.add_cols(9 - sheet.col_count)
+        if len(sheet.row_values(1)) < 8 or sheet.row_values(1)[7] != "Status": sheet.update_cell(1, 8, "Status")
+        if len(sheet.row_values(1)) < 9 or sheet.row_values(1)[8] != "Forma de Pagamento": sheet.update_cell(1, 9, "Forma de Pagamento")
 
         if not df.empty:
             df["Fornecedor_Match"] = df["Nome do Fornecedor"].astype(str).str.strip().str.upper()
@@ -432,7 +477,7 @@ elif menu_selecionado == "Despesas a pagar":
         if valores_inserir:
             sheet.append_rows(valores_inserir, value_input_option="USER_ENTERED")
 
-    def marcar_como_pago(forn, nf, parc):
+    def marcar_como_pago(forn, nf, parc, forma_pag):
         df = carregar_repositorio_despesas()
         if not df.empty:
             df["F_Match"] = df["Nome do Fornecedor"].astype(str).str.strip().str.upper()
@@ -446,10 +491,38 @@ elif menu_selecionado == "Despesas a pagar":
                 linha_real = indices[0] + 2 
                 client = get_sheets_client()
                 sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Despesas")
-                if len(sheet.row_values(1)) < 8 or sheet.row_values(1)[7] != "Status": sheet.update_cell(1, 8, "Status")
+                
+                if sheet.col_count < 9: sheet.add_cols(9 - sheet.col_count)
+                row_1 = sheet.row_values(1)
+                if len(row_1) < 8 or row_1[7] != "Status": sheet.update_cell(1, 8, "Status")
+                if len(row_1) < 9 or row_1[8] != "Forma de Pagamento": sheet.update_cell(1, 9, "Forma de Pagamento")
+                
                 sheet.update_cell(linha_real, 8, "Pago")
+                sheet.update_cell(linha_real, 9, forma_pag)
                 return True
         return False
+        
+    def atualizar_forma_pagamento(forn, nf, parc, select_key):
+        nova_forma = st.session_state[select_key]
+        if nova_forma == "-":
+            nova_forma = "" 
+            
+        df = carregar_repositorio_despesas()
+        if not df.empty:
+            df["F_Match"] = df["Nome do Fornecedor"].astype(str).str.strip().str.upper()
+            df["NF_Match"] = df["Número da Nota Fiscal"].apply(normalizar_nf)
+            df["P_Match"] = df["Parcela"].astype(str).str.strip()
+            
+            mask = (df["F_Match"] == str(forn).strip().upper()) & (df["NF_Match"] == normalizar_nf(nf)) & (df["P_Match"] == str(parc).strip())
+            indices = df[mask].index.tolist()
+            
+            if indices:
+                linha_real = indices[0] + 2 
+                client = get_sheets_client()
+                sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Despesas")
+                if sheet.col_count < 9: sheet.add_cols(9 - sheet.col_count)
+                sheet.update_cell(linha_real, 9, nova_forma)
+                st.session_state.sucesso_historico = f"✅ Forma de pagamento atualizada para '{nova_forma}' com sucesso!"
 
     def checar_nota_cadastrada():
         f = st.session_state.get("forn_p", "").strip()
@@ -495,19 +568,20 @@ elif menu_selecionado == "Despesas a pagar":
     with col_conteudo:
         st.title("Controle de Despesas a Pagar")
         
-        tab_lista, tab_lancamento = st.tabs(["📋 Títulos a Pagar (Pendentes)", "➕ Novo Lançamento / Edição"])
+        tab_lista, tab_lancamento, tab_historico = st.tabs(["📋 Títulos a Pagar (Pendentes)", "➕ Novo Lançamento / Edição", "📂 Histórico de Contas"])
         
+        df_todas_geral = carregar_repositorio_despesas()
+
         with tab_lista:
             if st.session_state.sucesso_pagamento:
                 st.success(st.session_state.sucesso_pagamento)
                 st.session_state.sucesso_pagamento = ""
 
             st.write("Abaixo estão todas as contas pendentes organizadas pela data de vencimento.")
-            df_todas = carregar_repositorio_despesas()
             
-            if not df_todas.empty:
-                if "Status" not in df_todas.columns: df_todas["Status"] = "Pendente"
-                df_pendentes = df_todas[df_todas["Status"] != "Pago"].copy()
+            if not df_todas_geral.empty:
+                if "Status" not in df_todas_geral.columns: df_todas_geral["Status"] = "Pendente"
+                df_pendentes = df_todas_geral[df_todas_geral["Status"] != "Pago"].copy()
                 
                 if not df_pendentes.empty:
                     df_pendentes["Venc_Fmt"] = df_pendentes["Data de Vencimento"].apply(converter_data_sheets)
@@ -515,7 +589,7 @@ elif menu_selecionado == "Despesas a pagar":
                     df_pendentes = df_pendentes.sort_values(by="Data_Sort", ascending=True)
                     
                     st.markdown("---")
-                    c1, c2, c3, c4, c5, c6 = st.columns([3, 2, 1, 2, 2, 2])
+                    c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 3])
                     c1.write("**Fornecedor**")
                     c2.write("**Nota Fiscal**")
                     c3.write("**Parcela**")
@@ -525,20 +599,35 @@ elif menu_selecionado == "Despesas a pagar":
                     st.markdown("---")
                     
                     for idx, row in df_pendentes.iterrows():
-                        c1, c2, c3, c4, c5, c6 = st.columns([3, 2, 1, 2, 2, 2])
-                        c1.write(str(row["Nome do Fornecedor"]))
-                        c2.write(str(row["Número da Nota Fiscal"]))
-                        c3.write(str(row["Parcela"]))
-                        c4.write(f"R$ {float(converter_valor(row['Valor da Parcela'])):.2f}".replace('.', ','))
-                        c5.write(str(row["Venc_Fmt"]))
+                        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 3])
+                        c1.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Nome do Fornecedor'])}</div>", unsafe_allow_html=True)
+                        c2.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Número da Nota Fiscal'])}</div>", unsafe_allow_html=True)
+                        c3.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Parcela'])}</div>", unsafe_allow_html=True)
+                        val_fmt = f"R$ {float(converter_valor(row['Valor da Parcela'])):.2f}".replace('.', ',')
+                        c4.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{val_fmt}</div>", unsafe_allow_html=True)
+                        c5.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Venc_Fmt'])}</div>", unsafe_allow_html=True)
                         
                         btn_key = f"pagar_{idx}_{row['Número da Nota Fiscal']}_{row['Parcela']}"
-                        if c6.button("✅ Pagar", key=btn_key):
-                            if marcar_como_pago(row["Nome do Fornecedor"], row["Número da Nota Fiscal"], row["Parcela"]):
-                                st.session_state.sucesso_pagamento = f"✅ Pagamento da parcela {row['Parcela']} (NF: {row['Número da Nota Fiscal']}) confirmado com sucesso!"
+                        
+                        if st.session_state.pagando_id == btn_key:
+                            forma_escolhida = c6.selectbox("Forma de Pagamento", ["Pix", "Boleto", "Cartão"], key=f"sel_{btn_key}", label_visibility="collapsed")
+                            
+                            col_conf, col_canc = c6.columns(2)
+                            if col_conf.button("✔ Conf.", key=f"conf_{btn_key}", help="Confirmar Pagamento"):
+                                if marcar_como_pago(row["Nome do Fornecedor"], row["Número da Nota Fiscal"], row["Parcela"], forma_escolhida):
+                                    st.session_state.sucesso_pagamento = f"✅ Pagamento da parcela {row['Parcela']} via {forma_escolhida} confirmado!"
+                                    st.session_state.pagando_id = None
+                                    st.rerun()
+                                else:
+                                    st.error("Erro ao baixar.")
+                                    
+                            if col_canc.button("✖ Canc.", key=f"canc_{btn_key}", help="Cancelar Ação"):
+                                st.session_state.pagando_id = None
                                 st.rerun()
-                            else:
-                                st.error("Erro ao localizar parcela para baixar.")
+                        else:
+                            if c6.button("✅ Pagar", key=btn_key):
+                                st.session_state.pagando_id = btn_key
+                                st.rerun()
                 else:
                     st.info("🎉 Fantástico! Não há despesas pendentes no momento.")
             else:
@@ -589,7 +678,7 @@ elif menu_selecionado == "Despesas a pagar":
                 
                 for i in range(int(num_parcelas)):
                     col_label, col_v_parc, col_venc = st.columns([1.5, 2.5, 2.5])
-                    with col_label: st.markdown(f"<p style='margin-top:35px;'><b>Parcela {i+1} / {int(num_parcelas)}</b></p>", unsafe_allow_html=True)
+                    with col_label: st.markdown(f"<p style='margin-top:35px;'><b>Parcela {i+1} de {int(num_parcelas)}</b></p>", unsafe_allow_html=True)
                     with col_v_parc:
                         k_val = f"d_val_{i}"
                         if k_val not in st.session_state: st.session_state[k_val] = f"{val_calculado_parcela:.2f}".replace('.', ',')
@@ -601,9 +690,10 @@ elif menu_selecionado == "Despesas a pagar":
                     
                     lista_dados_salvamento.append({
                         "Fornecedor": fornecedor.strip(), "NF": num_nf.strip(), "Total": v_total_nota,
-                        "Parcela": f"{i+1}/{int(num_parcelas)}", "Valor_Parc": val_digitado,
+                        "Parcela": f"{i+1} de {int(num_parcelas)}", "Valor_Parc": val_digitado,
                         "Vencimento": venc_digitado, "Registro": datetime.now().strftime("%d/%m/%Y"),
-                        "Status": "Pendente" 
+                        "Status": "Pendente",
+                        "Forma de Pagamento": "" 
                     })
                     
                 st.markdown("---")
@@ -615,6 +705,65 @@ elif menu_selecionado == "Despesas a pagar":
                         st.session_state.limpar_despesas = True
                         st.rerun() 
                     except Exception as e: st.error(f"❌ Erro ao salvar: {e}")
+
+        with tab_historico:
+            if st.session_state.sucesso_historico:
+                st.success(st.session_state.sucesso_historico)
+                st.session_state.sucesso_historico = ""
+
+            st.write("Abaixo estão todas as contas já pagas e o seu respetivo histórico de liquidação.")
+            
+            if not df_todas_geral.empty and "Status" in df_todas_geral.columns:
+                df_pagas = df_todas_geral[df_todas_geral["Status"] == "Pago"].copy()
+                
+                if not df_pagas.empty:
+                    df_pagas["Venc_Fmt"] = df_pagas["Data de Vencimento"].apply(converter_data_sheets)
+                    df_pagas["Data_Sort"] = pd.to_datetime(df_pagas["Venc_Fmt"], format="%d/%m/%Y", errors="coerce")
+                    df_pagas = df_pagas.sort_values(by="Data_Sort", ascending=False)
+                    
+                    st.markdown("---")
+                    c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 2])
+                    c1.write("**Fornecedor**")
+                    c2.write("**Nota Fiscal**")
+                    c3.write("**Parcela**")
+                    c4.write("**Valor (R$)**")
+                    c5.write("**Vencimento**")
+                    c6.write("**Forma Pag.**")
+                    st.markdown("---")
+                    
+                    for idx, row in df_pagas.iterrows():
+                        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 2])
+                        c1.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Nome do Fornecedor'])}</div>", unsafe_allow_html=True)
+                        c2.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Número da Nota Fiscal'])}</div>", unsafe_allow_html=True)
+                        c3.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Parcela'])}</div>", unsafe_allow_html=True)
+                        val_fmt = f"R$ {float(converter_valor(row['Valor da Parcela'])):.2f}".replace('.', ',')
+                        c4.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{val_fmt}</div>", unsafe_allow_html=True)
+                        c5.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Venc_Fmt'])}</div>", unsafe_allow_html=True)
+                        
+                        forma_atual = str(row.get("Forma de Pagamento", "")).strip()
+                        if not forma_atual or forma_atual == "nan" or forma_atual == "-":
+                            forma_atual = "-"
+                            
+                        opcoes_pag = ["-", "Pix", "Boleto", "Cartão"]
+                        if forma_atual not in opcoes_pag:
+                            opcoes_pag.append(forma_atual)
+                            
+                        idx_forma = opcoes_pag.index(forma_atual)
+                        select_key = f"edit_pag_{idx}_{row['Número da Nota Fiscal']}_{row['Parcela']}"
+                        
+                        c6.selectbox(
+                            "Forma Pag.", 
+                            options=opcoes_pag, 
+                            index=idx_forma, 
+                            key=select_key, 
+                            label_visibility="collapsed",
+                            on_change=atualizar_forma_pagamento,
+                            args=(row["Nome do Fornecedor"], row["Número da Nota Fiscal"], row["Parcela"], select_key)
+                        )
+                else:
+                    st.info("Nenhuma conta foi marcada como paga até o momento.")
+            else:
+                st.info("Nenhuma conta paga encontrada no histórico.")
 
 # =====================================================================
 # MÓDULO 4: CURVA ABC MELI
