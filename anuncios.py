@@ -82,23 +82,18 @@ def normalizar_nf(nf):
     n = re.sub(r'[^a-zA-Z0-9]', '', str(nf)).upper()
     return n.lstrip('0') if n.lstrip('0') else n
 
-# TRADUTOR REVERSO PARA BUG DAS DATAS DO GOOGLE SHEETS
 def corrigir_parcela_data(valor):
     if pd.isna(valor) or valor == "": return ""
     try:
-        # Se for um código serial de data criado acidentalmente pelo Sheets (ex: 46023)
         v_float = float(valor)
         if v_float > 40000:
             data = pd.to_datetime(v_float, unit='D', origin='1899-12-30')
             return f"{data.day} de {data.month}"
     except:
         pass
-    
-    # Se ainda estiver como "1/2" em texto, moderniza para "1 de 2"
     v_str = str(valor).strip()
     if re.match(r'^\d{1,2}/\d{1,2}$', v_str):
         return v_str.replace("/", " de ")
-        
     return v_str
 
 def buscar_produto_por_sku(sku_busca):
@@ -132,7 +127,6 @@ def puxar_dados_produto_cadastro_trigger():
         if info_prod is not None:
             st.session_state.nome_p = str(info_prod.get("Produto", ""))
             st.session_state.custo_p = formatar_moeda_ui(info_prod.get("Custo", 0))
-            st.session_state.data_ref_p = converter_data_sheets(info_prod.get("Data de Referência", ""))
 
 # =====================================================================
 # MÓDULO 1: CADASTRO DE ANÚNCIOS
@@ -177,6 +171,8 @@ if menu_selecionado == "Cadastro de Anúncios":
         st.session_state.imposto = 7.3
         if "ultimo_id_carregado" in st.session_state: del st.session_state.ultimo_id_carregado
         if "mostrar_sucesso" in st.session_state: del st.session_state.mostrar_sucesso
+        if "msg_salvo_anuncio" in st.session_state: del st.session_state.msg_salvo_anuncio
+        if "id_anuncio_salvo" in st.session_state: del st.session_state.id_anuncio_salvo
 
     if "custo" not in st.session_state: st.session_state.custo = "0,00"
     if "preco" not in st.session_state: st.session_state.preco = "0,00"
@@ -228,7 +224,7 @@ if menu_selecionado == "Cadastro de Anúncios":
         with col3: st.text_input("Última Atualização", value=st.session_state.ultima_atualizacao, disabled=True)
 
         if st.session_state.get("mostrar_sucesso") and id_input == st.session_state.get("ultimo_id_carregado"):
-            st.success("Dados recuperados da nuvem.")
+            st.info("ℹ️ Dados recuperados da nuvem.")
 
         st.markdown("---")
         st.subheader("📦 Dados do Produto")
@@ -295,6 +291,12 @@ if menu_selecionado == "Cadastro de Anúncios":
         st.table(df_detalhamento)
 
         st.markdown("---")
+        if st.session_state.get("msg_salvo_anuncio"):
+            if id_input == st.session_state.get("id_anuncio_salvo"):
+                st.success(st.session_state.msg_salvo_anuncio)
+            else:
+                st.session_state.msg_salvo_anuncio = ""
+
         if st.button("💾 Salvar Anúncio na Nuvem"):
             faltantes = [f for f, v in [("ID do Anúncio", id_input), ("Título", titulo_anuncio), ("Preço de Custo", custo_produto)] if not v or (isinstance(v, float) and v <= 0)]
             if not faltantes:
@@ -308,24 +310,34 @@ if menu_selecionado == "Cadastro de Anúncios":
                 }
                 try:
                     salvar_no_repositorio(dados_salvar)
-                    st.success(f"✅ Dados salvos com sucesso na nuvem! ({data_apenas})")
+                    st.session_state.msg_salvo_anuncio = f"✅ Dados do anúncio '{id_input}' salvos com sucesso na nuvem! ({data_apenas})"
+                    st.session_state.id_anuncio_salvo = id_input
                     st.rerun()
                 except Exception as e: st.error(f"❌ Erro ao salvar na planilha: {e}")
             else: st.error(f"❌ Erro ao salvar: Preencha os campos obrigatórios: {', '.join(faltantes)}")
 
 # =====================================================================
-# MÓDULO 2: CADASTRO DE PRODUTO
+# MÓDULO 2: CADASTRO DE PRODUTO & KITS
 # =====================================================================
 elif menu_selecionado == "Cadastro de Produto":
     
     if "limpar_produto" not in st.session_state: st.session_state.limpar_produto = False
     if "sucesso_produto" not in st.session_state: st.session_state.sucesso_produto = ""
+    # Controle de componentes do Kit
+    if "num_componentes_kit" not in st.session_state: st.session_state.num_componentes_kit = 1
 
     if st.session_state.limpar_produto:
         st.session_state.sku_p = ""
         st.session_state.nome_p = ""
         st.session_state.custo_p = "0,00"
-        st.session_state.data_ref_p = ""
+        
+        # Limpar vars do Kit
+        st.session_state.sku_kit = ""
+        st.session_state.nome_kit = ""
+        st.session_state.num_componentes_kit = 1
+        for k in list(st.session_state.keys()):
+            if k.startswith("kit_sku_") or k.startswith("kit_qtd_") or k.startswith("kit_nome_") or k.startswith("kit_unit_") or k.startswith("kit_tot_"): 
+                del st.session_state[k]
         st.session_state.limpar_produto = False
 
     def carregar_repositorio_produtos():
@@ -334,20 +346,17 @@ elif menu_selecionado == "Cadastro de Produto":
             doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
             try: sheet = doc.worksheet("Produtos")
             except:
-                sheet = doc.add_worksheet(title="Produtos", rows="1000", cols="5")
-                sheet.append_row(["SKU", "Produto", "Custo", "Data de Referência"], value_input_option="USER_ENTERED")
+                sheet = doc.add_worksheet(title="Produtos", rows="1000", cols="3")
+                sheet.append_row(["SKU", "Produto", "Custo"], value_input_option="USER_ENTERED")
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            return pd.DataFrame(data) if data else pd.DataFrame(columns=["SKU", "Produto", "Custo", "Data de Referência"])
-        except: return pd.DataFrame(columns=["SKU", "Produto", "Custo", "Data de Referência"])
+            return pd.DataFrame(data) if data else pd.DataFrame(columns=["SKU", "Produto", "Custo"])
+        except: return pd.DataFrame(columns=["SKU", "Produto", "Custo"])
 
     def salvar_produto_no_repositorio(dados):
         df = carregar_repositorio_produtos()
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Produtos")
         
-        if sheet.col_count < 4: sheet.add_cols(4 - sheet.col_count)
-        if len(sheet.row_values(1)) < 4 or sheet.row_values(1)[3] != "Data de Referência": sheet.update_cell(1, 4, "Data de Referência")
-
         valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
         
         if not df.empty and "SKU" in df.columns:
@@ -355,7 +364,7 @@ elif menu_selecionado == "Cadastro de Produto":
             sku_busca = str(dados["SKU"]).strip()
             if sku_busca in df["SKU"].values:
                 idx = df[df["SKU"] == sku_busca].index[0]
-                sheet.update(range_name=f'A{idx+2}:D{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+                sheet.update(range_name=f'A{idx+2}:C{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
                 return
         sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
 
@@ -366,39 +375,146 @@ elif menu_selecionado == "Cadastro de Produto":
     if "custo_p" not in st.session_state: st.session_state.custo_p = "0,00"
     if "nome_p" not in st.session_state: st.session_state.nome_p = ""
     if "sku_p" not in st.session_state: st.session_state.sku_p = ""
-    if "data_ref_p" not in st.session_state: st.session_state.data_ref_p = ""
 
-    col_vazia1, col_conteudo, col_vazia2 = st.columns([0.5, 3, 0.5])
+    col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
         st.title("Cadastro de Mestre de Produtos")
-        st.markdown("---")
         
         if st.session_state.sucesso_produto:
             st.success(st.session_state.sucesso_produto)
             st.session_state.sucesso_produto = ""
+            
+        tab_simples, tab_kit = st.tabs(["📦 Produto Simples", "🔗 Kit (Produto Composto)"])
         
-        c1, c2 = st.columns(2)
-        with c1: sku_p = st.text_input("SKU do Produto", key="sku_p", on_change=puxar_dados_produto_cadastro_trigger)
-        with c2: nome_p = st.text_input("Nome do Produto", key="nome_p")
+        # ABA 1: PRODUTO SIMPLES
+        with tab_simples:
+            st.markdown("<br>", unsafe_allow_html=True)
+            c1, c2, c3 = st.columns([1.5, 2, 1.5])
+            with c1: sku_p = st.text_input("SKU do Produto", key="sku_p", on_change=puxar_dados_produto_cadastro_trigger)
+            with c2: nome_p = st.text_input("Nome do Produto", key="nome_p")
+            with c3:
+                custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto)
+                v_custo_p = converter_valor(st.session_state.custo_p)
+                
+            st.markdown("---")
+            if st.button("💾 Gravar Ficha do Produto", key="btn_prod_simples"):
+                if sku_p.strip() and nome_p.strip() and v_custo_p > 0:
+                    dados_prod = {"SKU": sku_p.strip(), "Produto": nome_p.strip(), "Custo": v_custo_p}
+                    try:
+                        salvar_produto_no_repositorio(dados_prod)
+                        st.session_state.sucesso_produto = f"✅ Produto {sku_p} registrado com sucesso!"
+                        st.session_state.limpar_produto = True
+                        st.rerun() 
+                    except Exception as e: st.error(f"❌ Erro ao gravar produto: {e}")
+                else: st.error("❌ Por favor, preencha todos os campos obrigatórios.")
+
+        # ABA 2: KIT (PRODUTO COMPOSTO)
+        with tab_kit:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.write("Crie um produto composto selecionando outros produtos já cadastrados no sistema.")
             
-        c3, c4 = st.columns(2)
-        with c3:
-            custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto)
-            v_custo_p = converter_valor(st.session_state.custo_p)
-        with c4:
-            data_ref_p = st.text_input("Data de Referência (Data da Compra)", key="data_ref_p", placeholder="Ex: 10/05/2026")
+            c1, c2 = st.columns([1, 2])
+            with c1: sku_kit = st.text_input("SKU do Kit", key="sku_kit")
+            with c2: nome_kit = st.text_input("Nome do Kit", key="nome_kit")
             
-        st.markdown("---")
-        if st.button("💾 Gravar Ficha do Produto"):
-            if sku_p.strip() and nome_p.strip() and v_custo_p > 0 and data_ref_p.strip():
-                dados_prod = {"SKU": sku_p.strip(), "Produto": nome_p.strip(), "Custo": v_custo_p, "Data de Referência": data_ref_p.strip()}
-                try:
-                    salvar_produto_no_repositorio(dados_prod)
-                    st.session_state.sucesso_produto = f"✅ Produto {sku_p} registrado com sucesso!"
-                    st.session_state.limpar_produto = True
-                    st.rerun() 
-                except Exception as e: st.error(f"❌ Erro ao gravar produto: {e}")
-            else: st.error("❌ Por favor, preencha todos os campos obrigatórios (incluindo a Data de Referência).")
+            st.markdown("#### Componentes do Kit")
+            custo_total_kit = 0.0
+            
+            c_sku, c_nome, c_qtd, c_unit, c_tot = st.columns([1.5, 2.5, 1, 1.2, 1.2])
+            c_sku.write("**SKU Componente**")
+            c_nome.write("**Nome do Produto**")
+            c_qtd.write("**Qtd**")
+            c_unit.write("**Valor Unit.**")
+            c_tot.write("**Valor Total**")
+            
+            # Tabela Dinâmica de Componentes
+            for i in range(st.session_state.num_componentes_kit):
+                c_sku, c_nome, c_qtd, c_unit, c_tot = st.columns([1.5, 2.5, 1, 1.2, 1.2])
+                with c_sku:
+                    sku_comp = st.text_input(f"sku_{i}", key=f"kit_sku_{i}", label_visibility="collapsed")
+                
+                with c_qtd:
+                    qtd_comp = st.number_input(f"qtd_{i}", min_value=1, value=1, step=1, key=f"kit_qtd_{i}", label_visibility="collapsed")
+                
+                nome_comp = ""
+                custo_unit_comp = 0.0
+                
+                if sku_comp.strip():
+                    prod_data = buscar_produto_por_sku(sku_comp.strip())
+                    if prod_data is not None:
+                        nome_comp = str(prod_data.get("Produto", ""))
+                        custo_unit_comp = converter_valor(prod_data.get("Custo", 0))
+                    else:
+                        nome_comp = "⚠️ Produto não encontrado"
+                
+                total_comp = custo_unit_comp * qtd_comp
+                custo_total_kit += total_comp
+                
+                # INJEÇÃO DIRETA NA MEMÓRIA PARA ATUALIZAR A TELA INSTANTANEAMENTE
+                st.session_state[f"kit_nome_comp_{i}"] = nome_comp
+                st.session_state[f"kit_unit_comp_{i}"] = f"R$ {custo_unit_comp:.2f}".replace('.', ',')
+                st.session_state[f"kit_tot_comp_{i}"] = f"R$ {total_comp:.2f}".replace('.', ',')
+                        
+                with c_nome:
+                    st.text_input(f"nome_{i}", disabled=True, key=f"kit_nome_comp_{i}", label_visibility="collapsed")
+                with c_unit:
+                    st.text_input(f"unit_{i}", disabled=True, key=f"kit_unit_comp_{i}", label_visibility="collapsed")
+                with c_tot:
+                    st.text_input(f"tot_{i}", disabled=True, key=f"kit_tot_comp_{i}", label_visibility="collapsed")
+            
+            if st.button("➕ Adicionar outro produto ao kit"):
+                st.session_state.num_componentes_kit += 1
+                st.rerun()
+                
+            st.markdown("---")
+            st.metric("Custo Total do Kit", f"R$ {custo_total_kit:.2f}".replace('.', ','))
+            
+            if st.button("💾 Gravar Kit", key="btn_salvar_kit"):
+                if sku_kit.strip() and nome_kit.strip() and custo_total_kit > 0:
+                    dados_kit_prod = {
+                        "SKU": sku_kit.strip(), 
+                        "Produto": nome_kit.strip(), 
+                        "Custo": custo_total_kit
+                    }
+                    try:
+                        # Grava o Kit na aba de Produtos para ele ficar disponível nos Anúncios
+                        salvar_produto_no_repositorio(dados_kit_prod)
+                        
+                        # Grava a receita do Kit em uma aba paralela chamada Kits_Composicao
+                        client = get_sheets_client()
+                        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                        try: sheet_kits = doc.worksheet("Kits_Composicao")
+                        except:
+                            sheet_kits = doc.add_worksheet(title="Kits_Composicao", rows="1000", cols="6")
+                            sheet_kits.append_row(["SKU do Kit", "Nome do Kit", "SKU Componente", "Qtd", "Custo Unitário", "Custo Total"], value_input_option="USER_ENTERED")
+                        
+                        linhas_composicao = []
+                        for i in range(st.session_state.num_componentes_kit):
+                            sku_c = st.session_state.get(f"kit_sku_{i}", "").strip()
+                            qtd_c = st.session_state.get(f"kit_qtd_{i}", 1)
+                            if sku_c:
+                                prod_data = buscar_produto_por_sku(sku_c)
+                                if prod_data is not None:
+                                    unit_c = converter_valor(prod_data.get("Custo", 0))
+                                    tot_c = unit_c * qtd_c
+                                    linhas_composicao.append([
+                                        sku_kit.strip(),
+                                        nome_kit.strip(),
+                                        sku_c,
+                                        qtd_c,
+                                        f"{unit_c:.2f}".replace('.', ','),
+                                        f"{tot_c:.2f}".replace('.', ',')
+                                    ])
+                        
+                        if linhas_composicao:
+                            sheet_kits.append_rows(linhas_composicao, value_input_option="USER_ENTERED")
+                            
+                        st.session_state.sucesso_produto = f"✅ Kit '{sku_kit}' registado com sucesso no banco de Produtos!"
+                        st.session_state.limpar_produto = True
+                        st.rerun() 
+                    except Exception as e: st.error(f"❌ Erro ao gravar kit: {e}")
+                else:
+                    st.error("❌ Preencha o SKU do Kit, Nome, e garanta que digitou pelo menos 1 componente válido.")
 
 # =====================================================================
 # MÓDULO 3: DESPESAS A PAGAR 
@@ -439,7 +555,6 @@ elif menu_selecionado == "Despesas a pagar":
             
             df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Nome do Fornecedor", "Número da Nota Fiscal", "Valor Total da Nota", "Parcela", "Valor da Parcela", "Data de Vencimento", "Data de Registro", "Status", "Forma de Pagamento"])
             
-            # TRADUTOR REVERSO: Atua imediatamente logo após puxar da nuvem
             if not df.empty and "Parcela" in df.columns:
                 df["Parcela"] = df["Parcela"].apply(corrigir_parcela_data)
                 
