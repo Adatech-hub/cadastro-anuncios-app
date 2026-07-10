@@ -16,25 +16,68 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. CSS PARA ESTILIZAÇÃO
+# 2. CSS PARA ESTILIZAÇÃO - PALETA ADATECH
 st.markdown("""
     <style>
-    .stApp { background-color: #FFFFFF; }
-    [data-testid="stSidebar"] { background-color: #F4F6F9 !important; }
-    h1, h2, h3, p, span, label { color: #1E1E1E !important; }
+    /* Fundo da aplicação e da barra superior */
+    .stApp { background-color: #FFFFFF !important; }
+    [data-testid="stHeader"] { background-color: #FFFFFF !important; }
+    
+    /* Menu Lateral - Fundo cinza suave e borda Sky Blue */
+    [data-testid="stSidebar"] { 
+        background-color: #F4F6F9 !important; 
+        border-right: 2px solid #74D1EA !important; 
+    }
+    
+    /* Títulos principais na cor DEEP VIOLET da Adatech */
+    h1, h2, h3 { color: #250E62 !important; }
+    p, span, label { color: #1E1E1E !important; }
+    
+    /* Campos de Entrada (Inputs) */
+    div[data-testid="stTextInput"] input, 
+    div[data-testid="stNumberInput"] input, 
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        background-color: #F8F9FA !important;
+        color: #250E62 !important; /* O texto digitado fica em Deep Violet */
+        border: 1px solid #D1D5DB !important;
+    }
+    
+    /* Comportamento ao focar no campo - Brilho na cor VIVID CERISE da Adatech */
+    div[data-testid="stTextInput"] input:focus, 
+    div[data-testid="stNumberInput"] input:focus, 
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus {
+        border-color: #DA1984 !important; 
+        box-shadow: 0 0 0 0.2rem rgba(218, 25, 132, 0.25) !important;
+    }
+    
+    /* Campos Desabilitados */
+    div[data-testid="stTextInput"] input[disabled], 
+    div[data-testid="stNumberInput"] input[disabled] {
+        background-color: #FFF2CC !important; 
+        color: #B8860B !important; 
+        -webkit-text-fill-color: #B8860B !important; 
+        font-weight: bold;
+    }
+    
+    /* Botões - Fundo SKY BLUE com 60% de intensidade e Letra DEEP VIOLET */
     div.stButton > button {
-        color: #1E1E1E !important; background-color: #F0F2F6 !important; 
-        border: 1px solid #1E1E1E !important; border-radius: 5px; width: 100%; font-weight: bold;
+        color: #250E62 !important; 
+        background-color: rgba(116, 209, 234, 0.6) !important; 
+        border: 1px solid #74D1EA !important; 
+        border-radius: 5px; 
+        width: 100%; 
+        font-weight: bold;
     }
-    div.stButton > button:hover { color: #FFFFFF !important; background-color: #1E1E1E !important; }
-    div[data-testid="stTextInput"] :focus, div[data-testid="stNumberInput"] :focus, div[data-testid="stSelectbox"] :focus {
-        border-color: #28a745 !important; box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25) !important;
+    
+    /* Botões Hover - Fundo SKY BLUE 100% de intensidade */
+    div.stButton > button:hover { 
+        background-color: #74D1EA !important; 
+        color: #250E62 !important; 
+        border: 1px solid #250E62 !important; 
     }
-    div[data-testid="stTextInput"] input[disabled] {
-        background-color: #FFF2CC !important; color: #B8860B !important; 
-        -webkit-text-fill-color: #B8860B !important; font-weight: bold;
-    }
-    [data-testid="stMetricValue"] { color: #1E1E1E !important; }
+    
+    /* Métricas e Tabelas */
+    [data-testid="stMetricValue"] { color: #250E62 !important; }
     .stTable { background-color: #F8F9FA; color: #1E1E1E; }
     </style>
 """, unsafe_allow_html=True)
@@ -42,7 +85,13 @@ st.markdown("""
 # 3. MENU LATERAL
 st.sidebar.image(URL_LOGO, width=150)
 st.sidebar.title("Navegação")
-menu_selecionado = st.sidebar.radio("Selecione a ferramenta:", ["Cadastro de Anúncios", "Cadastro de Produto", "Despesas a pagar", "Curva ABC Meli"])
+menu_selecionado = st.sidebar.radio("Selecione a ferramenta:", [
+    "Cadastro de Anúncios", 
+    "Cadastro de Produto", 
+    "Cadastro de Fornecedor", 
+    "Despesas a pagar", 
+    "Curva ABC Meli"
+])
 st.sidebar.markdown("---")
 
 # =====================================================================
@@ -96,6 +145,41 @@ def corrigir_parcela_data(valor):
         return v_str.replace("/", " de ")
     return v_str
 
+# FUNÇÃO CALCULADORA INTELIGENTE (Aceita matemática padrão e porcentagens)
+def avaliar_expressao_matematica(texto):
+    texto_limpo = str(texto).strip().replace('=', '').replace(',', '.')
+    # Mantém números, operadores e o símbolo de porcentagem
+    expr = re.sub(r'[^\d\.\+\-\*\/\(\)\%]', '', texto_limpo)
+    
+    try:
+        # Resolve porcentagens para cálculos de acréscimo e desconto
+        while '%' in expr:
+            # Padrão: X + Y% ou X - Y%
+            match = re.search(r'([\d\.]+)([\+\-])([\d\.]+)%', expr)
+            if match:
+                base = match.group(1)
+                operador = match.group(2)
+                percentual = match.group(3)
+                if operador == '+':
+                    subst = f"({base}*(1+{percentual}/100))"
+                else:
+                    subst = f"({base}*(1-{percentual}/100))"
+                expr = expr[:match.start()] + subst + expr[match.end():]
+            else:
+                # Padrão simples: Y% isolado vira (Y/100)
+                match_mult = re.search(r'([\d\.]+)%', expr)
+                if match_mult:
+                    val = match_mult.group(1)
+                    expr = expr[:match_mult.start()] + f"({val}/100)" + expr[match_mult.end():]
+                else:
+                    expr = expr.replace('%', '') # Prevenção de erro
+                    
+        if expr:
+            return float(eval(expr))
+        return 0.0
+    except:
+        return None
+
 def buscar_produto_por_sku(sku_busca):
     if not sku_busca: return None
     try:
@@ -127,11 +211,95 @@ def puxar_dados_produto_cadastro_trigger():
         if info_prod is not None:
             st.session_state.nome_p = str(info_prod.get("Produto", ""))
             st.session_state.custo_p = formatar_moeda_ui(info_prod.get("Custo", 0))
+            st.session_state.forn_p = str(info_prod.get("Fornecedor", ""))
+            st.session_state.data_ref_p = converter_data_sheets(info_prod.get("Data de Referência", ""))
+            st.session_state.ean_p = str(info_prod.get("EAN", ""))
+            st.session_state.ncm_p = str(info_prod.get("NCM", ""))
+            st.session_state.cst_p = str(info_prod.get("CST", ""))
+            st.session_state.medida_p = str(info_prod.get("Medida", ""))
+            st.session_state.peso_p = str(info_prod.get("Peso", ""))
+
+def get_lista_fornecedores():
+    try:
+        client = get_sheets_client()
+        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+        try: sheet = doc.worksheet("Fornecedores")
+        except: return [] 
+        data = sheet.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+            if not df.empty and "Nome do Fornecedor" in df.columns:
+                lista = df["Nome do Fornecedor"].dropna().astype(str).str.strip()
+                lista = lista[lista != ""].unique().tolist()
+                return sorted(lista)
+    except: pass
+    return []
+
+# =====================================================================
+# MÓDULO: CADASTRO DE FORNECEDOR
+# =====================================================================
+if menu_selecionado == "Cadastro de Fornecedor":
+    col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
+    with col_conteudo:
+        st.title("🏭 Cadastro de Fornecedor")
+        st.markdown("Registre novos fornecedores para utilizá-los no Cadastro de Produtos e Despesas.")
+        
+        with st.form("form_novo_fornecedor", clear_on_submit=True):
+            st.subheader("Dados do Fornecedor")
+            
+            c1, c2 = st.columns(2)
+            novo_nome_forn = c1.text_input("Nome do Fornecedor *")
+            novo_cnpj = c2.text_input("CNPJ")
+            
+            novo_endereco = st.text_input("Endereço Completo")
+            
+            c3, c4 = st.columns(2)
+            novo_vendedor = c3.text_input("Nome do Vendedor / Contato")
+            novo_telefone = c4.text_input("Telefone")
+            
+            submit_forn = st.form_submit_button("💾 Salvar Fornecedor")
+            
+            if submit_forn:
+                if novo_nome_forn.strip():
+                    try:
+                        client = get_sheets_client()
+                        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                        try: sheet = doc.worksheet("Fornecedores")
+                        except:
+                            sheet = doc.add_worksheet(title="Fornecedores", rows="1000", cols="5")
+                            sheet.append_row(["Nome do Fornecedor", "CNPJ", "Endereço", "Vendedor", "Telefone"])
+                        
+                        sheet.append_row([
+                            novo_nome_forn.strip(), 
+                            novo_cnpj.strip(), 
+                            novo_endereco.strip(), 
+                            novo_vendedor.strip(), 
+                            novo_telefone.strip()
+                        ])
+                        st.success(f"✅ Fornecedor '{novo_nome_forn}' cadastrado com sucesso!")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao salvar fornecedor: {e}")
+                else:
+                    st.error("❌ O campo 'Nome do Fornecedor' é obrigatório.")
+                    
+        st.markdown("---")
+        st.subheader("Fornecedores Cadastrados")
+        try:
+            client = get_sheets_client()
+            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+            sheet_forn = doc.worksheet("Fornecedores")
+            df_forn = pd.DataFrame(sheet_forn.get_all_records())
+            if not df_forn.empty:
+                st.dataframe(df_forn, use_container_width=True, hide_index=True)
+            else:
+                st.info("Nenhum fornecedor registrado ainda.")
+        except:
+            st.info("Nenhum fornecedor registrado ainda.")
 
 # =====================================================================
 # MÓDULO 1: CADASTRO DE ANÚNCIOS
 # =====================================================================
-if menu_selecionado == "Cadastro de Anúncios":
+elif menu_selecionado == "Cadastro de Anúncios":
     
     def carregar_repositorio():
         try:
@@ -154,8 +322,9 @@ if menu_selecionado == "Cadastro de Anúncios":
             sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
 
     def processar_calculo_custo():
-        texto_atual = str(st.session_state.custo)
-        if texto_atual.startswith("="): st.session_state.custo = formatar_moeda_ui(texto_atual.replace("=", ""))
+        val = avaliar_expressao_matematica(st.session_state.custo)
+        if val is not None:
+            st.session_state.custo = f"{val:.2f}".replace('.', ',')
 
     def resetar_campos():
         campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao"]
@@ -323,15 +492,31 @@ elif menu_selecionado == "Cadastro de Produto":
     
     if "limpar_produto" not in st.session_state: st.session_state.limpar_produto = False
     if "sucesso_produto" not in st.session_state: st.session_state.sucesso_produto = ""
-    # Controle de componentes do Kit
     if "num_componentes_kit" not in st.session_state: st.session_state.num_componentes_kit = 1
+
+    if "sku_p" not in st.session_state: st.session_state.sku_p = ""
+    if "nome_p" not in st.session_state: st.session_state.nome_p = ""
+    if "custo_p" not in st.session_state: st.session_state.custo_p = "0,00"
+    if "forn_p" not in st.session_state: st.session_state.forn_p = ""
+    if "data_ref_p" not in st.session_state: st.session_state.data_ref_p = ""
+    if "ean_p" not in st.session_state: st.session_state.ean_p = ""
+    if "ncm_p" not in st.session_state: st.session_state.ncm_p = ""
+    if "cst_p" not in st.session_state: st.session_state.cst_p = ""
+    if "medida_p" not in st.session_state: st.session_state.medida_p = ""
+    if "peso_p" not in st.session_state: st.session_state.peso_p = ""
 
     if st.session_state.limpar_produto:
         st.session_state.sku_p = ""
         st.session_state.nome_p = ""
         st.session_state.custo_p = "0,00"
+        st.session_state.forn_p = ""
+        st.session_state.data_ref_p = ""
+        st.session_state.ean_p = ""
+        st.session_state.ncm_p = ""
+        st.session_state.cst_p = ""
+        st.session_state.medida_p = ""
+        st.session_state.peso_p = ""
         
-        # Limpar vars do Kit
         st.session_state.sku_kit = ""
         st.session_state.nome_kit = ""
         st.session_state.num_componentes_kit = 1
@@ -346,35 +531,50 @@ elif menu_selecionado == "Cadastro de Produto":
             doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
             try: sheet = doc.worksheet("Produtos")
             except:
-                sheet = doc.add_worksheet(title="Produtos", rows="1000", cols="3")
-                sheet.append_row(["SKU", "Produto", "Custo"], value_input_option="USER_ENTERED")
+                sheet = doc.add_worksheet(title="Produtos", rows="1000", cols="10")
+                sheet.append_row(["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso"], value_input_option="USER_ENTERED")
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            return pd.DataFrame(data) if data else pd.DataFrame(columns=["SKU", "Produto", "Custo"])
-        except: return pd.DataFrame(columns=["SKU", "Produto", "Custo"])
+            return pd.DataFrame(data) if data else pd.DataFrame(columns=["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso"])
+        except: return pd.DataFrame(columns=["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso"])
 
-    def salvar_produto_no_repositorio(dados):
+    def salvar_produto_completo(dados):
         df = carregar_repositorio_produtos()
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Produtos")
         
-        valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
+        header = ["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso"]
+        
+        if sheet.col_count < 10: 
+            sheet.add_cols(10 - sheet.col_count)
+        if sheet.row_values(1) != header:
+            sheet.update(range_name='A1:J1', values=[header], value_input_option="USER_ENTERED")
+            
+        valores_formatados = [
+            str(dados.get("SKU", "")).strip(), 
+            str(dados.get("Produto", "")).strip(), 
+            f"{dados.get('Custo', 0):.2f}".replace('.', ','),
+            str(dados.get("Fornecedor", "")).strip(),
+            str(dados.get("Data Ref", "")).strip(),
+            str(dados.get("EAN", "")).strip(),
+            str(dados.get("NCM", "")).strip(),
+            str(dados.get("CST", "")).strip(),
+            str(dados.get("Medida", "")).strip(),
+            str(dados.get("Peso", "")).strip()
+        ]
         
         if not df.empty and "SKU" in df.columns:
             df["SKU"] = df["SKU"].astype(str).str.strip()
             sku_busca = str(dados["SKU"]).strip()
             if sku_busca in df["SKU"].values:
                 idx = df[df["SKU"] == sku_busca].index[0]
-                sheet.update(range_name=f'A{idx+2}:C{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+                sheet.update(range_name=f'A{idx+2}:J{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
                 return
         sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
 
     def processar_calculo_custo_produto():
-        texto_atual = str(st.session_state.custo_p)
-        if texto_atual.startswith("="): st.session_state.custo_p = formatar_moeda_ui(texto_atual.replace("=", ""))
-
-    if "custo_p" not in st.session_state: st.session_state.custo_p = "0,00"
-    if "nome_p" not in st.session_state: st.session_state.nome_p = ""
-    if "sku_p" not in st.session_state: st.session_state.sku_p = ""
+        val = avaliar_expressao_matematica(st.session_state.custo_p)
+        if val is not None:
+            st.session_state.custo_p = f"{val:.2f}".replace('.', ',')
 
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
@@ -389,24 +589,56 @@ elif menu_selecionado == "Cadastro de Produto":
         # ABA 1: PRODUTO SIMPLES
         with tab_simples:
             st.markdown("<br>", unsafe_allow_html=True)
-            c1, c2, c3 = st.columns([1.5, 2, 1.5])
+            
+            c1, c2 = st.columns([1.5, 3])
             with c1: sku_p = st.text_input("SKU do Produto", key="sku_p", on_change=puxar_dados_produto_cadastro_trigger)
             with c2: nome_p = st.text_input("Nome do Produto", key="nome_p")
-            with c3:
-                custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto)
+            
+            c4, c5, c6 = st.columns(3)
+            with c4: ean_produto = st.text_input("EAN do Produto", key="ean_p")
+            with c5: ncm_produto = st.text_input("NCM", key="ncm_p")
+            with c6: cst_produto = st.text_input("CST", key="cst_p")
+            
+            c7, c8 = st.columns(2)
+            with c7: medida_produto = st.text_input("Medida (Ex: 10x10x10)", key="medida_p")
+            with c8: peso_produto = st.text_input("Peso do produto (kg)", key="peso_p")
+            
+            c9, c10, c11 = st.columns(3)
+            with c9: 
+                lista_forns = get_lista_fornecedores()
+                if not lista_forns:
+                    lista_forns = ["⚠️ Cadastre um fornecedor primeiro no menu lateral"]
+                    
+                forn_atual = st.session_state.get("forn_p", "")
+                idx_forn = 0
+                if forn_atual in lista_forns:
+                    idx_forn = lista_forns.index(forn_atual)
+                    
+                nome_fornecedor = st.selectbox("Nome do Fornecedor", options=lista_forns, index=idx_forn, key="forn_p")
+
+            with c10: 
+                custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto, help="Aceita cálculos! Ex: 10+5*2 ou 21,12-2,5%")
                 v_custo_p = converter_valor(st.session_state.custo_p)
+            with c11: 
+                data_ref_preco = st.text_input("Data de Referência do Preço de Custo", placeholder="Ex: 03/07/2026", key="data_ref_p")
                 
             st.markdown("---")
             if st.button("💾 Gravar Ficha do Produto", key="btn_prod_simples"):
                 if sku_p.strip() and nome_p.strip() and v_custo_p > 0:
-                    dados_prod = {"SKU": sku_p.strip(), "Produto": nome_p.strip(), "Custo": v_custo_p}
+                    dados_prod = {
+                        "SKU": sku_p, "Produto": nome_p, "Custo": v_custo_p,
+                        "Fornecedor": nome_fornecedor if "⚠️" not in nome_fornecedor else "", 
+                        "Data Ref": data_ref_preco,
+                        "EAN": ean_produto, "NCM": ncm_produto, "CST": cst_produto,
+                        "Medida": medida_produto, "Peso": peso_produto
+                    }
                     try:
-                        salvar_produto_no_repositorio(dados_prod)
+                        salvar_produto_completo(dados_prod)
                         st.session_state.sucesso_produto = f"✅ Produto {sku_p} registrado com sucesso!"
                         st.session_state.limpar_produto = True
                         st.rerun() 
                     except Exception as e: st.error(f"❌ Erro ao gravar produto: {e}")
-                else: st.error("❌ Por favor, preencha todos os campos obrigatórios.")
+                else: st.error("❌ Por favor, preencha os campos obrigatórios (SKU, Nome, Preço de Custo).")
 
         # ABA 2: KIT (PRODUTO COMPOSTO)
         with tab_kit:
@@ -450,7 +682,6 @@ elif menu_selecionado == "Cadastro de Produto":
                 total_comp = custo_unit_comp * qtd_comp
                 custo_total_kit += total_comp
                 
-                # INJEÇÃO DIRETA NA MEMÓRIA PARA ATUALIZAR A TELA INSTANTANEAMENTE
                 st.session_state[f"kit_nome_comp_{i}"] = nome_comp
                 st.session_state[f"kit_unit_comp_{i}"] = f"R$ {custo_unit_comp:.2f}".replace('.', ',')
                 st.session_state[f"kit_tot_comp_{i}"] = f"R$ {total_comp:.2f}".replace('.', ',')
@@ -474,13 +705,12 @@ elif menu_selecionado == "Cadastro de Produto":
                     dados_kit_prod = {
                         "SKU": sku_kit.strip(), 
                         "Produto": nome_kit.strip(), 
-                        "Custo": custo_total_kit
+                        "Custo": custo_total_kit,
+                        "Fornecedor": "", "Data Ref": "", "EAN": "", "NCM": "", "CST": "", "Medida": "", "Peso": ""
                     }
                     try:
-                        # Grava o Kit na aba de Produtos para ele ficar disponível nos Anúncios
-                        salvar_produto_no_repositorio(dados_kit_prod)
+                        salvar_produto_completo(dados_kit_prod)
                         
-                        # Grava a receita do Kit em uma aba paralela chamada Kits_Composicao
                         client = get_sheets_client()
                         doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
                         try: sheet_kits = doc.worksheet("Kits_Composicao")
