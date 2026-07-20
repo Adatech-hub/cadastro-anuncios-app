@@ -346,9 +346,11 @@ elif menu_selecionado == "Cadastro de Anúncios":
             if info_prod is not None:
                 st.session_state.nome_produto = str(info_prod.get("Produto", ""))
                 st.session_state.custo = formatar_moeda_ui(info_prod.get("Custo", 0))
+                st.session_state.medida = str(info_prod.get("Medida", ""))
+                st.session_state.peso = str(info_prod.get("Peso", ""))
 
     def resetar_campos():
-        campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio"]
+        campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "medida", "peso"]
         for c in campos: st.session_state[c] = ""
         st.session_state.custo = "0,00"
         st.session_state.preco = "0,00"
@@ -359,6 +361,12 @@ elif menu_selecionado == "Cadastro de Anúncios":
         st.session_state.estorno = "0,00"
         st.session_state.tacos = 0.0
         st.session_state.imposto = 7.3
+        
+        # Limpar os dados da Venda Atacado
+        if "num_atacado" in st.session_state: st.session_state.num_atacado = 1
+        for k in list(st.session_state.keys()):
+            if k.startswith("atac_"): del st.session_state[k]
+            
         if "ultimo_id_carregado" in st.session_state: del st.session_state.ultimo_id_carregado
         if "mostrar_sucesso" in st.session_state: del st.session_state.mostrar_sucesso
         if "msg_salvo_anuncio" in st.session_state: del st.session_state.msg_salvo_anuncio
@@ -370,6 +378,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
     if "nome_produto" not in st.session_state: st.session_state.nome_produto = ""
     if "sku" not in st.session_state: st.session_state.sku = ""
     if "link_anuncio" not in st.session_state: st.session_state.link_anuncio = ""
+    if "medida" not in st.session_state: st.session_state.medida = ""
+    if "peso" not in st.session_state: st.session_state.peso = ""
 
     id_atual = st.session_state.get("id_anuncio", "")
     if id_atual and st.session_state.get("ultimo_id_carregado") != id_atual:
@@ -392,6 +402,17 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.tacos = float(converter_valor(row.get("TACOS", 0)))
                 st.session_state.imposto = float(converter_valor(row.get("Imposto", 7.3)))
                 st.session_state.ultima_atualizacao = converter_data_sheets(row.get("Última Atualização", ""))
+                
+                # Busca as medidas e peso no Cadastro Mestre baseado no SKU carregado
+                if st.session_state.sku:
+                    prod_mestre = buscar_produto_por_sku(st.session_state.sku)
+                    if prod_mestre is not None:
+                        st.session_state.medida = str(prod_mestre.get("Medida", ""))
+                        st.session_state.peso = str(prod_mestre.get("Peso", ""))
+                    else:
+                        st.session_state.medida = ""
+                        st.session_state.peso = ""
+
                 st.session_state.ultimo_id_carregado = id_atual
                 st.session_state.mostrar_sucesso = True
             else: st.session_state.ultimo_id_carregado = id_atual
@@ -437,6 +458,10 @@ elif menu_selecionado == "Cadastro de Anúncios":
         with col_sku: sku_anuncio = st.text_input("SKU do Produto", placeholder="Ex: SKU-12345-X", key="sku", on_change=puxar_dados_produto_por_sku_trigger)
         with col_prod: nome_produto = st.text_input("Produto", placeholder="Ex: Camiseta Térmica", key="nome_produto")
         with col_custo: st.text_input("Preço de Custo (R$)", key="custo", on_change=processar_calculo_custo)
+        
+        c_medida, c_peso, c_vazio = st.columns([1, 1, 2])
+        with c_medida: st.text_input("Medidas (A x L x C)", key="medida", disabled=True)
+        with c_peso: st.text_input("Peso (kg)", key="peso", disabled=True)
 
         custo_produto = converter_valor(st.session_state.custo)
         st.markdown("---")
@@ -494,6 +519,56 @@ elif menu_selecionado == "Cadastro de Anúncios":
             "Percentual (%)": [f"{(preco_final/denominador*100):.2f}%", f"{(custo_produto/denominador*100):.2f}%", f"{(valor_comissao/denominador*100):.2f}%", f"{(custo_frete/denominador*100):.2f}%", f"{(valor_imposto/denominador*100):.2f}%", f"{(taxa_fixa_venda/denominador*100):.2f}%", f"{(valor_tacos/denominador*100):.2f}%", f"{(estorno_ml/denominador*100):.2f}%", f"{(lucro_liquido/denominador*100):.2f}%"]
         })
         st.table(df_detalhamento)
+
+        # =========================================================
+        # NOVA SECÇÃO: VENDA ATACADO
+        # =========================================================
+        st.markdown("---")
+        st.subheader("📦 Estratégias de Venda no Atacado")
+        
+        if "num_atacado" not in st.session_state:
+            st.session_state.num_atacado = 1
+            
+        for i in range(st.session_state.num_atacado):
+            st.markdown(f"**Opção {i+1}**")
+            c_desc, c_unid, c_frete, c_pu, c_vt, c_lucro = st.columns(6)
+            
+            with c_desc:
+                desc_atac = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key=f"atac_desc_{i}")
+            with c_unid:
+                unid_atac = st.number_input("Unidades", min_value=1, step=1, key=f"atac_unid_{i}")
+            with c_frete:
+                if f"atac_frete_{i}" not in st.session_state:
+                    st.session_state[f"atac_frete_{i}"] = "0,00"
+                frete_atac_str = st.text_input("Frete (R$)", key=f"atac_frete_{i}")
+                frete_atac = converter_valor(frete_atac_str)
+                
+            # Cálculos Atacado
+            preco_unit_atac = preco_original * (1 - (desc_atac / 100))
+            valor_total_atac = preco_unit_atac * unid_atac
+            
+            comissao_atac = valor_total_atac * (comissao_mkt_porcentagem / 100)
+            imposto_atac = valor_total_atac * (imposto_porcentagem / 100)
+            tacos_atac = valor_total_atac * (porcentagem_tacos / 100)
+            custo_total_atac = custo_produto * unid_atac
+            
+            # Margem de lucro: Valor total - Frete - Comissão - TACOS - Imposto - Custo do Produto
+            lucro_atac = valor_total_atac - frete_atac - comissao_atac - imposto_atac - tacos_atac - custo_total_atac
+            margem_atac = (lucro_atac / valor_total_atac * 100) if valor_total_atac > 0 else 0.0
+            
+            # NOTA DE CORREÇÃO: Removido as 'keys' dos campos desabilitados e adicionados espaços invisíveis (\u200B) 
+            # na label para evitar que o Streamlit faça cache de valores mortos!
+            spc = "\u200B" * i
+            with c_pu:
+                st.text_input(f"Preço Unitário (R$){spc}", value=f"{preco_unit_atac:.2f}".replace('.', ','), disabled=True)
+            with c_vt:
+                st.text_input(f"Valor Total (R$){spc}", value=f"{valor_total_atac:.2f}".replace('.', ','), disabled=True)
+            with c_lucro:
+                st.text_input(f"Lucro Líquido / Margem{spc}", value=f"R$ {lucro_atac:.2f} ({margem_atac:.2f}%)".replace('.', ','), disabled=True)
+                
+        if st.button("➕ Acrescentar outra linha de estratégia para venda em atacado"):
+            st.session_state.num_atacado += 1
+            st.rerun()
 
         st.markdown("---")
         if st.session_state.get("msg_salvo_anuncio"):
@@ -1231,3 +1306,4 @@ elif menu_selecionado == "Curva ABC Meli":
                 hide_index=True 
             )
         except Exception as e: st.error(f"Erro: {e}")
+        
