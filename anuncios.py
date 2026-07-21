@@ -316,23 +316,23 @@ elif menu_selecionado == "Cadastro de Anúncios":
             client = get_sheets_client()
             sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio"])
+            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes"])
             return pd.DataFrame(data)
-        except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio"])
+        except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes"])
 
     def salvar_no_repositorio(dados):
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
         
-        header = ["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio"]
-        if sheet.col_count < 15: sheet.add_cols(15 - sheet.col_count)
-        if sheet.row_values(1) != header: sheet.update(range_name='A1:O1', values=[header], value_input_option="USER_ENTERED")
+        header = ["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes"]
+        if sheet.col_count < 17: sheet.add_cols(17 - sheet.col_count)
+        if sheet.row_values(1) != header: sheet.update(range_name='A1:Q1', values=[header], value_input_option="USER_ENTERED")
 
         df = carregar_repositorio()
         valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
         if not df.empty and "ID do Anúncio" in df.columns and dados["ID do Anúncio"] in df["ID do Anúncio"].values:
             idx = df[df["ID do Anúncio"] == dados["ID do Anúncio"]].index[0]
-            sheet.update(range_name=f'A{idx+2}:O{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+            sheet.update(range_name=f'A{idx+2}:Q{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
         else: sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
 
     def processar_calculo_custo():
@@ -362,8 +362,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
         st.session_state.tacos = 0.0
         st.session_state.imposto = 7.3
         
-        # Limpar os dados da Venda Atacado
-        if "num_atacado" in st.session_state: st.session_state.num_atacado = 1
+        if "num_atacado" in st.session_state: st.session_state.num_atacado = 0
         for k in list(st.session_state.keys()):
             if k.startswith("atac_"): del st.session_state[k]
             
@@ -371,6 +370,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
         if "mostrar_sucesso" in st.session_state: del st.session_state.mostrar_sucesso
         if "msg_salvo_anuncio" in st.session_state: del st.session_state.msg_salvo_anuncio
         if "id_anuncio_salvo" in st.session_state: del st.session_state.id_anuncio_salvo
+        if "historico_anuncio" in st.session_state: st.session_state.historico_anuncio = []
+        if "estado_original_anuncio" in st.session_state: st.session_state.estado_original_anuncio = {}
 
     if "custo" not in st.session_state: st.session_state.custo = "0,00"
     if "preco" not in st.session_state: st.session_state.preco = "0,00"
@@ -402,6 +403,50 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.tacos = float(converter_valor(row.get("TACOS", 0)))
                 st.session_state.imposto = float(converter_valor(row.get("Imposto", 7.3)))
                 st.session_state.ultima_atualizacao = converter_data_sheets(row.get("Última Atualização", ""))
+                
+                # Desempacotar Estratégias de Atacado
+                raw_atacado = row.get("Estrategias_Atacado", "[]")
+                atacado_json = str(raw_atacado) if pd.notna(raw_atacado) else "[]"
+                try:
+                    atacado_data = json.loads(atacado_json) if atacado_json.strip() else []
+                except:
+                    atacado_data = []
+
+                if atacado_data:
+                    st.session_state.num_atacado = len(atacado_data)
+                    for i, opt in enumerate(atacado_data):
+                        st.session_state[f"atac_desc_{i}"] = float(opt.get("desconto", 0.0))
+                        st.session_state[f"atac_unid_{i}"] = int(opt.get("unidades", 1))
+                        st.session_state[f"atac_frete_{i}"] = str(opt.get("frete", "0,00"))
+                        st.session_state[f"atac_del_{i}"] = False
+                else:
+                    st.session_state.num_atacado = 0
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("atac_"): del st.session_state[k]
+                        
+                # Desempacotar Histórico de Alterações
+                raw_hist = row.get("Historico_Alteracoes", "[]")
+                try:
+                    st.session_state.historico_anuncio = json.loads(str(raw_hist)) if pd.notna(raw_hist) and str(raw_hist).strip() else []
+                except:
+                    st.session_state.historico_anuncio = []
+                    
+                # Guardar Estado Original para comparação no momento de Salvar
+                st.session_state.estado_original_anuncio = {
+                    "SKU": st.session_state.sku,
+                    "Título": st.session_state.titulo,
+                    "Custo": float(converter_valor(row.get("Custo", 0))),
+                    "Preço Original": float(converter_valor(row.get("Preço Original", 0))),
+                    "Desconto": st.session_state.desconto,
+                    "Frete": float(converter_valor(row.get("Frete", 0))),
+                    "Comissão": st.session_state.comissao,
+                    "Custo Full": float(converter_valor(row.get("Taxa Fixa", 0))),
+                    "Estorno": float(converter_valor(row.get("Estorno", 0))),
+                    "ACOS OBJ.": st.session_state.tacos,
+                    "Imposto": st.session_state.imposto,
+                    "Link": st.session_state.link_anuncio,
+                    "Estratégias Atacado": atacado_json
+                }
                 
                 # Busca as medidas e peso no Cadastro Mestre baseado no SKU carregado
                 if st.session_state.sku:
@@ -478,11 +523,11 @@ elif menu_selecionado == "Cadastro de Anúncios":
         col_comissao, col_frete, col_taxa = st.columns(3)
         with col_comissao: comissao_mkt_porcentagem = st.number_input("Comissão Marketplace (%)", min_value=0.0, step=0.1, key="comissao")
         with col_frete: custo_frete_str = st.text_input("Custo de Frete (R$)", key="frete")
-        with col_taxa: taxa_fixa_venda_str = st.text_input("Taxa Fixa por Venda (R$)", key="taxa")
+        with col_taxa: taxa_fixa_venda_str = st.text_input("Custo Full (R$)", key="taxa")
 
         col_estorno, col_tacos, col_imposto = st.columns(3)
         with col_estorno: estorno_ml_str = st.text_input("Estorno/Bonificação ML (R$)", key="estorno")
-        with col_tacos: porcentagem_tacos = st.number_input("Custo de Publicidade TACOS (%)", min_value=0.0, max_value=100.0, step=0.1, key="tacos")
+        with col_tacos: porcentagem_tacos = st.number_input("Custo de Publicidade ACOS OBJ. (%)", min_value=0.0, max_value=100.0, step=0.1, key="tacos")
         with col_imposto: imposto_porcentagem = st.number_input("Imposto sobre NF (%)", min_value=0.0, step=0.1, key="imposto")
 
         custo_frete = converter_valor(custo_frete_str)
@@ -514,7 +559,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
         st.write("### Detalhamento Financeiro")
         denominador = preco_final if preco_final > 0 else 1.0
         df_detalhamento = pd.DataFrame({
-            "Descrição": ["Preço Final", "Custo Produto", "Comissão", "Frete", "Imposto", "Taxa Fixa", "TACOS", "Estorno", "LUCRO LÍQUIDO"],
+            "Descrição": ["Preço Final", "Custo Produto", "Comissão", "Frete", "Imposto", "Custo Full", "ACOS OBJ.", "Estorno", "LUCRO LÍQUIDO"],
             "Valor": [f"R$ {preco_final:.2f}", f"R$ {custo_produto:.2f}", f"R$ {valor_comissao:.2f}", f"R$ {custo_frete:.2f}", f"R$ {valor_imposto:.2f}", f"R$ {taxa_fixa_venda:.2f}", f"R$ {valor_tacos:.2f}", f"R$ {estorno_ml:.2f}", f"R$ {lucro_liquido:.2f}"],
             "Percentual (%)": [f"{(preco_final/denominador*100):.2f}%", f"{(custo_produto/denominador*100):.2f}%", f"{(valor_comissao/denominador*100):.2f}%", f"{(custo_frete/denominador*100):.2f}%", f"{(valor_imposto/denominador*100):.2f}%", f"{(taxa_fixa_venda/denominador*100):.2f}%", f"{(valor_tacos/denominador*100):.2f}%", f"{(estorno_ml/denominador*100):.2f}%", f"{(lucro_liquido/denominador*100):.2f}%"]
         })
@@ -524,15 +569,54 @@ elif menu_selecionado == "Cadastro de Anúncios":
         # NOVA SECÇÃO: VENDA ATACADO
         # =========================================================
         st.markdown("---")
-        st.subheader("📦 Estratégias de Venda no Atacado")
         
+        col_tit_atac, col_del_atac = st.columns([3, 1])
+        with col_tit_atac:
+            st.subheader("📦 Estratégias de Venda no Atacado")
+            
         if "num_atacado" not in st.session_state:
             st.session_state.num_atacado = 1
             
+        def remover_selecionados():
+            to_delete = [i for i in range(st.session_state.num_atacado) if st.session_state.get(f"atac_del_{i}", False)]
+            if not to_delete: return
+            
+            remaining = []
+            for i in range(st.session_state.num_atacado):
+                if i not in to_delete:
+                    remaining.append({
+                        "desc": st.session_state.get(f"atac_desc_{i}", 0.0),
+                        "unid": st.session_state.get(f"atac_unid_{i}", 1),
+                        "frete": st.session_state.get(f"atac_frete_{i}", "0,00")
+                    })
+            
+            for i in range(st.session_state.num_atacado):
+                for k in ["atac_desc_", "atac_unid_", "atac_frete_", "atac_del_"]:
+                    if f"{k}{i}" in st.session_state: del st.session_state[f"{k}{i}"]
+                        
+            st.session_state.num_atacado = len(remaining)
+            for i, data in enumerate(remaining):
+                st.session_state[f"atac_desc_{i}"] = data["desc"]
+                st.session_state[f"atac_unid_{i}"] = data["unid"]
+                st.session_state[f"atac_frete_{i}"] = data["frete"]
+                st.session_state[f"atac_del_{i}"] = False
+
+        with col_del_atac:
+            st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+            if st.session_state.num_atacado > 0:
+                if st.button("🗑️ Excluir Selecionadas"):
+                    remover_selecionados()
+                    st.rerun()
+                    
         for i in range(st.session_state.num_atacado):
             st.markdown(f"**Opção {i+1}**")
-            c_desc, c_unid, c_frete, c_pu, c_vt, c_lucro = st.columns(6)
             
+            c_chk, c_desc, c_unid, c_frete, c_pu, c_vt, c_lucro = st.columns([0.5, 2, 2, 2, 2, 2, 2.5])
+            
+            with c_chk:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                st.checkbox(" ", key=f"atac_del_{i}", label_visibility="collapsed")
+                
             with c_desc:
                 desc_atac = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key=f"atac_desc_{i}")
             with c_unid:
@@ -552,12 +636,9 @@ elif menu_selecionado == "Cadastro de Anúncios":
             tacos_atac = valor_total_atac * (porcentagem_tacos / 100)
             custo_total_atac = custo_produto * unid_atac
             
-            # Margem de lucro: Valor total - Frete - Comissão - TACOS - Imposto - Custo do Produto
             lucro_atac = valor_total_atac - frete_atac - comissao_atac - imposto_atac - tacos_atac - custo_total_atac
             margem_atac = (lucro_atac / valor_total_atac * 100) if valor_total_atac > 0 else 0.0
             
-            # NOTA DE CORREÇÃO: Removido as 'keys' dos campos desabilitados e adicionados espaços invisíveis (\u200B) 
-            # na label para evitar que o Streamlit faça cache de valores mortos!
             spc = "\u200B" * i
             with c_pu:
                 st.text_input(f"Preço Unitário (R$){spc}", value=f"{preco_unit_atac:.2f}".replace('.', ','), disabled=True)
@@ -570,6 +651,27 @@ elif menu_selecionado == "Cadastro de Anúncios":
             st.session_state.num_atacado += 1
             st.rerun()
 
+        # =========================================================
+        # NOVA SECÇÃO: HISTÓRICO DE ALTERAÇÕES
+        # =========================================================
+        st.markdown("---")
+        st.subheader("🕒 Histórico de Alterações")
+        
+        historico_atual = st.session_state.get("historico_anuncio", [])
+        if historico_atual:
+            df_hist = pd.DataFrame(historico_atual)
+            st.dataframe(
+                df_hist.style.set_properties(**{
+                    'background-color': '#F4F6F9',
+                    'color': '#1E1E1E',
+                    'border-color': '#E5E7EB'
+                }),
+                use_container_width=True,
+                hide_index=True 
+            )
+        else:
+            st.info("Nenhuma alteração registada para este anúncio.")
+
         st.markdown("---")
         if st.session_state.get("msg_salvo_anuncio"):
             if id_input == st.session_state.get("id_anuncio_salvo"):
@@ -581,18 +683,83 @@ elif menu_selecionado == "Cadastro de Anúncios":
             faltantes = [f for f, v in [("ID do Anúncio", id_input), ("Título", titulo_anuncio), ("Preço de Custo", custo_produto)] if not v or (isinstance(v, float) and v <= 0)]
             if not faltantes:
                 data_apenas = datetime.now().strftime("%d/%m/%Y")
+                data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                 st.session_state.ultima_atualizacao = data_apenas
+                
+                # Agrupando atacado
+                atacado_data = []
+                for i in range(st.session_state.get("num_atacado", 0)):
+                    atacado_data.append({
+                        "desconto": st.session_state.get(f"atac_desc_{i}", 0.0),
+                        "unidades": st.session_state.get(f"atac_unid_{i}", 1),
+                        "frete": st.session_state.get(f"atac_frete_{i}", "0,00")
+                    })
+                estrategias_json = json.dumps(atacado_data)
+                
+                # --- LÓGICA DE AUDITORIA E HISTÓRICO ---
+                campos_rastreados = {
+                    "SKU": sku_anuncio,
+                    "Título": titulo_anuncio,
+                    "Custo": custo_produto,
+                    "Preço Original": preco_original,
+                    "Desconto": porcentagem_desconto,
+                    "Frete": custo_frete,
+                    "Comissão": comissao_mkt_porcentagem,
+                    "Custo Full": taxa_fixa_venda,
+                    "Estorno": estorno_ml,
+                    "ACOS OBJ.": porcentagem_tacos,
+                    "Imposto": imposto_porcentagem,
+                    "Link": link_anuncio_input,
+                    "Estratégias Atacado": estrategias_json
+                }
+                
+                estado_orig = st.session_state.get("estado_original_anuncio", {})
+                mudancas = []
+                
+                if not estado_orig:
+                    mudancas.append("Novo anúncio cadastrado")
+                else:
+                    for k, v in campos_rastreados.items():
+                        v_orig = estado_orig.get(k)
+                        if isinstance(v, float) and isinstance(v_orig, float):
+                            if abs(v - v_orig) > 0.001: 
+                                mudancas.append(k)
+                        elif str(v).strip() != str(v_orig).strip():
+                            mudancas.append(k)
+
+                if mudancas:
+                    if mudancas[0] == "Novo anúncio cadastrado":
+                        texto_mudancas = "Novo anúncio cadastrado no sistema."
+                    else:
+                        texto_mudancas = "Campos alterados: " + ", ".join(mudancas)
+                else:
+                    texto_mudancas = "Anúncio guardado sem alterações nos valores."
+
+                # Atualiza a lista do histórico (colocando a mudança mais recente no topo)
+                hist_list = st.session_state.get("historico_anuncio", [])
+                hist_list.insert(0, {"Data da Alteração": data_hora_atual, "Detalhes das Alterações": texto_mudancas})
+                st.session_state.historico_anuncio = hist_list
+                historico_json = json.dumps(hist_list)
+                # ---------------------------------------
+                
                 dados_salvar = {
                     "ID do Anúncio": id_input, "SKU": sku_anuncio, "Produto": st.session_state.nome_produto, "Título": titulo_anuncio, 
                     "Custo": custo_produto, "Preço Original": preco_original, "Desconto": porcentagem_desconto, 
                     "Frete": custo_frete, "Comissão": comissao_mkt_porcentagem, "Taxa Fixa": taxa_fixa_venda, 
                     "Estorno": estorno_ml, "TACOS": porcentagem_tacos, "Imposto": imposto_porcentagem, "Última Atualização": data_apenas,
-                    "Link do Anúncio": link_anuncio_input
+                    "Link do Anúncio": link_anuncio_input,
+                    "Estrategias_Atacado": estrategias_json,
+                    "Historico_Alteracoes": historico_json
                 }
+                
                 try:
                     salvar_no_repositorio(dados_salvar)
                     st.session_state.msg_salvo_anuncio = f"✅ Dados do anúncio '{id_input}' salvos com sucesso na nuvem! ({data_apenas})"
                     st.session_state.id_anuncio_salvo = id_input
+                    
+                    # Atualizar o estado original na memória para evitar "falsas mudanças" se o user clicar em gravar duas vezes
+                    st.session_state.estado_original_anuncio = campos_rastreados.copy()
+                    
                     st.rerun()
                 except Exception as e: st.error(f"❌ Erro ao salvar na planilha: {e}")
             else: st.error(f"❌ Erro ao salvar: Preencha os campos obrigatórios: {', '.join(faltantes)}")
@@ -1306,4 +1473,3 @@ elif menu_selecionado == "Curva ABC Meli":
                 hide_index=True 
             )
         except Exception as e: st.error(f"Erro: {e}")
-        
