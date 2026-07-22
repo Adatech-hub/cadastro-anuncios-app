@@ -220,8 +220,8 @@ def cached_produtos_data():
         doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
         try: sheet = doc.worksheet("Produtos")
         except:
-            sheet = doc.add_worksheet(title="Produtos", rows="1000", cols="12")
-            sheet.append_row(["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição"], value_input_option="USER_ENTERED")
+            sheet = doc.add_worksheet(title="Produtos", rows="1000", cols="13")
+            sheet.append_row(["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição", "Historico_Precos"], value_input_option="USER_ENTERED")
         data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
         if data: return pd.DataFrame(data)
     except: pass
@@ -786,6 +786,7 @@ elif menu_selecionado == "Cadastro de Produto":
     if "peso_p" not in st.session_state: st.session_state.peso_p = ""
     if "campo_sem_p" not in st.session_state: st.session_state.campo_sem_p = ""
     if "desc_p" not in st.session_state: st.session_state.desc_p = ""
+    if "historico_precos_p" not in st.session_state: st.session_state.historico_precos_p = []
 
     if st.session_state.limpar_produto:
         st.session_state.sku_p = ""
@@ -801,6 +802,7 @@ elif menu_selecionado == "Cadastro de Produto":
         st.session_state.peso_p = ""
         st.session_state.campo_sem_p = ""
         st.session_state.desc_p = ""
+        st.session_state.historico_precos_p = []
         
         st.session_state.sku_kit = ""
         st.session_state.nome_kit = ""
@@ -812,20 +814,21 @@ elif menu_selecionado == "Cadastro de Produto":
 
     def salvar_produto_completo(dados):
         df = cached_produtos_data()
-        if df is None: df = pd.DataFrame(columns=["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição"])
+        if df is None: df = pd.DataFrame(columns=["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição", "Historico_Precos"])
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Produtos")
         
-        header = ["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição"]
+        header = ["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição", "Historico_Precos"]
         
-        if sheet.col_count < 12: sheet.add_cols(12 - sheet.col_count)
-        if sheet.row_values(1) != header: sheet.update(range_name='A1:L1', values=[header], value_input_option="USER_ENTERED")
+        if sheet.col_count < 13: sheet.add_cols(13 - sheet.col_count)
+        if sheet.row_values(1) != header: sheet.update(range_name='A1:M1', values=[header], value_input_option="USER_ENTERED")
             
         valores_formatados = [
             str(dados.get("SKU", "")).strip(), str(dados.get("Produto", "")).strip(), f"{dados.get('Custo', 0):.2f}".replace('.', ','),
             str(dados.get("Fornecedor", "")).strip(), str(dados.get("Data Ref", "")).strip(), str(dados.get("EAN", "")).strip(),
             str(dados.get("NCM", "")).strip(), str(dados.get("CST", "")).strip(), str(dados.get("Medida", "")).strip(),
-            str(dados.get("Peso", "")).strip(), str(dados.get("Campo_Semantico", "")).strip(), str(dados.get("Descricao", "")).strip()
+            str(dados.get("Peso", "")).strip(), str(dados.get("Campo_Semantico", "")).strip(), str(dados.get("Descricao", "")).strip(),
+            str(dados.get("Historico_Precos", "")).strip()
         ]
         
         if not df.empty and "SKU" in df.columns:
@@ -833,7 +836,7 @@ elif menu_selecionado == "Cadastro de Produto":
             sku_busca = str(dados["SKU"]).strip()
             if sku_busca in df["SKU"].values:
                 idx = df[df["SKU"] == sku_busca].index[0]
-                sheet.update(range_name=f'A{idx+2}:L{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+                sheet.update(range_name=f'A{idx+2}:M{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
                 cached_produtos_data.clear() 
                 return
         sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
@@ -869,6 +872,12 @@ elif menu_selecionado == "Cadastro de Produto":
                 st.session_state.peso_p = str(info_prod.get("Peso", ""))
                 st.session_state.campo_sem_p = str(info_prod.get("Campo Semântico", ""))
                 st.session_state.desc_p = str(info_prod.get("Características/Descrição", ""))
+                
+                raw_hist = info_prod.get("Historico_Precos", "[]")
+                try:
+                    st.session_state.historico_precos_p = json.loads(str(raw_hist)) if pd.notna(raw_hist) and str(raw_hist).strip() else []
+                except:
+                    st.session_state.historico_precos_p = []
 
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
@@ -923,20 +932,59 @@ elif menu_selecionado == "Cadastro de Produto":
                 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Novo Campo Semântico e Descrição Expandida
             campo_semantico = st.text_area("Campo Semântico (Palavras-chave SEO para buscas)", key="campo_sem_p", height=100)
             desc_produto = st.text_area("Características, Benefícios e Informações do Produto (Para Anúncios)", key="desc_p", height=400)
+            
+            st.markdown("---")
+            st.subheader("📉 Histórico de Preços")
+            
+            if st.session_state.historico_precos_p:
+                df_hist_precos = pd.DataFrame(st.session_state.historico_precos_p)
+                df_hist_precos["Custo"] = df_hist_precos["Custo"].apply(lambda x: f"R$ {float(x):.2f}".replace('.', ','))
+                st.dataframe(
+                    df_hist_precos.style.set_properties(**{
+                        'background-color': '#F4F6F9',
+                        'color': '#1E1E1E',
+                        'border-color': '#E5E7EB'
+                    }),
+                    use_container_width=True,
+                    hide_index=True 
+                )
+            else:
+                st.info("Nenhum histórico de preço registado para este produto.")
                 
             st.markdown("---")
             if st.button("💾 Gravar Ficha do Produto", key="btn_prod_simples"):
                 if sku_p.strip() and nome_p.strip() and v_custo_p > 0:
+                    
+                    # --- Lógica do Histórico de Preços ---
+                    hist_list = st.session_state.get("historico_precos_p", []).copy()
+                    novo_forn = nome_fornecedor if "⚠️" not in nome_fornecedor else ""
+                    
+                    if not hist_list:
+                        hist_list.append({"Data": data_ref_preco, "Fornecedor": novo_forn, "Custo": v_custo_p, "Variação": "0,00%"})
+                    else:
+                        last_record = hist_list[-1]
+                        if last_record.get("Custo") != v_custo_p or last_record.get("Fornecedor") != novo_forn or last_record.get("Data") != data_ref_preco:
+                            old_custo = float(last_record.get("Custo", 0))
+                            if old_custo > 0:
+                                var_pct = ((v_custo_p - old_custo) / old_custo) * 100
+                                var_str = f"🔺 +{var_pct:.2f}%" if var_pct > 0 else (f"🔻 {var_pct:.2f}%" if var_pct < 0 else "0,00%")
+                            else:
+                                var_str = "0,00%"
+                            hist_list.append({"Data": data_ref_preco, "Fornecedor": novo_forn, "Custo": v_custo_p, "Variação": var_str.replace('.', ',')})
+                    
+                    historico_json = json.dumps(hist_list)
+                    # -------------------------------------
+                    
                     dados_prod = {
                         "SKU": sku_p, "Produto": nome_p, "Custo": v_custo_p,
-                        "Fornecedor": nome_fornecedor if "⚠️" not in nome_fornecedor else "", 
+                        "Fornecedor": novo_forn, 
                         "Data Ref": data_ref_preco, "EAN": ean_produto, "NCM": ncm_produto, 
                         "CST": cst_produto, "Medida": medida_produto, "Peso": peso_produto,
                         "Campo_Semantico": campo_semantico,
-                        "Descricao": desc_produto
+                        "Descricao": desc_produto,
+                        "Historico_Precos": historico_json
                     }
                     try:
                         salvar_produto_completo(dados_prod)
@@ -1009,7 +1057,7 @@ elif menu_selecionado == "Cadastro de Produto":
                 if sku_kit.strip() and nome_kit.strip() and custo_total_kit > 0:
                     dados_kit_prod = {
                         "SKU": sku_kit.strip(), "Produto": nome_kit.strip(), "Custo": custo_total_kit,
-                        "Fornecedor": "", "Data Ref": "", "EAN": "", "NCM": "", "CST": "", "Medida": "", "Peso": "", "Campo_Semantico": "", "Descricao": ""
+                        "Fornecedor": "", "Data Ref": "", "EAN": "", "NCM": "", "CST": "", "Medida": "", "Peso": "", "Campo_Semantico": "", "Descricao": "", "Historico_Precos": "[]"
                     }
                     try:
                         salvar_produto_completo(dados_kit_prod)
