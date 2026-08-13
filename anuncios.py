@@ -123,6 +123,66 @@ st.markdown("""
         background-color: rgba(37, 14, 98, 0.15) !important; 
         color: #250E62 !important;
     }
+    
+    /* ========================================================= */
+    /* Ajustes visuais para Componentes do ChatBot (Sem Preto)   */
+    /* ========================================================= */
+    [data-testid="stExpander"] {
+        background-color: #F8F9FA !important;
+        border: 1px solid #74D1EA !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stExpander"] summary {
+        background-color: rgba(116, 209, 234, 0.2) !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stExpander"] summary:hover {
+        background-color: rgba(116, 209, 234, 0.4) !important;
+    }
+    [data-testid="stExpander"] summary p {
+        color: #250E62 !important;
+        font-weight: bold !important;
+    }
+    
+    /* Blocos de Código (Onde ficam as frases prontas) */
+    div[data-testid="stCodeBlock"] > div, 
+    div[data-testid="stCodeBlock"] pre {
+        background-color: #F8F9FA !important;
+        border-radius: 5px !important;
+    }
+    div[data-testid="stCodeBlock"] {
+        border: 1px solid #D1D5DB !important;
+        border-radius: 5px !important;
+    }
+    div[data-testid="stCodeBlock"] code {
+        color: #1E1E1E !important;
+        text-shadow: none !important;
+        font-family: Arial, sans-serif !important;
+        font-size: 15px !important;
+        white-space: pre-wrap !important;
+    }
+    
+    /* Forçar o botão de COPIAR a ficar SEMPRE VISÍVEL e nas cores da ADATECH */
+    div[data-testid="stCodeBlock"] button {
+        opacity: 1 !important; 
+        visibility: visible !important;
+        transform: none !important;
+        background-color: #74D1EA !important;
+        border: 1px solid #250E62 !important;
+        border-radius: 4px !important;
+        right: 10px !important;
+        top: 10px !important;
+    }
+    div[data-testid="stCodeBlock"] button:hover {
+        background-color: #250E62 !important;
+    }
+    div[data-testid="stCodeBlock"] button svg {
+        stroke: #250E62 !important; 
+        fill: transparent !important;
+    }
+    div[data-testid="stCodeBlock"] button:hover svg {
+        stroke: #FFFFFF !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -137,7 +197,8 @@ menu_selecionado = st.sidebar.radio("Selecione a ferramenta:", [
     "Curva ABC Meli",
     "Product ADS",
     "Pós Venda",
-    "Calculadora Simples"
+    "Calculadora Simples",
+    "ChatBot"
 ])
 st.sidebar.markdown("---")
 
@@ -283,6 +344,18 @@ def cached_ocorrencias():
         client = get_sheets_client()
         doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
         try: sheet = doc.worksheet("Pos_Venda")
+        except: return None
+        data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        if data: return pd.DataFrame(data)
+    except: pass
+    return None
+
+@st.cache_data(ttl=15)
+def cached_chatbot_frases():
+    try:
+        client = get_sheets_client()
+        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+        try: sheet = doc.worksheet("ChatBot")
         except: return None
         data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
         if data: return pd.DataFrame(data)
@@ -803,6 +876,10 @@ elif menu_selecionado == "Cadastro de Anúncios":
         historico_atual = st.session_state.get("historico_anuncio", [])
         if historico_atual:
             df_hist = pd.DataFrame(historico_atual)
+            if "Otimizações" not in df_hist.columns:
+                df_hist["Otimizações"] = "-"
+            df_hist["Otimizações"] = df_hist["Otimizações"].fillna("-")
+            
             st.dataframe(
                 df_hist.style.set_properties(**{
                     'background-color': '#F4F6F9',
@@ -853,35 +930,48 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     "ACOS OBJ.": porcentagem_tacos,
                     "Imposto": imposto_porcentagem,
                     "Link": link_anuncio_input,
-                    "Estratégias Atacado": estrategias_json,
-                    "Otimizações": otimizacoes_texto
+                    "Estratégias Atacado": estrategias_json
                 }
                 
                 estado_orig = st.session_state.get("estado_original_anuncio", {})
                 mudancas = []
                 
+                def fmt_val(v):
+                    if isinstance(v, float):
+                        return f"{v:.2f}".replace('.', ',')
+                    return str(v).strip()
+                
                 if not estado_orig:
-                    mudancas.append("Novo anúncio cadastrado")
+                    mudancas.append("Novo anúncio cadastrado no sistema.")
                 else:
                     for k, v in campos_rastreados.items():
-                        v_orig = estado_orig.get(k)
+                        v_orig = estado_orig.get(k, "")
                         if isinstance(v, float) and isinstance(v_orig, float):
                             if abs(v - v_orig) > 0.001: 
-                                mudancas.append(k)
+                                mudancas.append(f"{k} (de {fmt_val(v_orig)} para {fmt_val(v)})")
                         elif str(v).strip() != str(v_orig).strip():
-                            mudancas.append(k)
+                            if k == "Estratégias Atacado":
+                                mudancas.append("Estratégias de Atacado alteradas")
+                            else:
+                                mudancas.append(f"{k} (de '{fmt_val(v_orig)}' para '{fmt_val(v)}')")
 
                 if mudancas:
-                    if mudancas[0] == "Novo anúncio cadastrado":
+                    if mudancas[0] == "Novo anúncio cadastrado no sistema.":
                         texto_mudancas = "Novo anúncio cadastrado no sistema."
                     else:
-                        texto_mudancas = "Campos alterados: " + ", ".join(mudancas)
+                        texto_mudancas = " | ".join(mudancas)
                 else:
-                    texto_mudancas = "Anúncio guardado sem alterações nos valores."
+                    texto_mudancas = "Anúncio guardado sem alterações nos valores principais."
 
-                # Atualiza a lista do histórico (colocando a mudança mais recente no topo)
+                otimizacoes_atuais = otimizacoes_texto.strip() if otimizacoes_texto.strip() else "-"
+
+                # Atualiza a lista do histórico
                 hist_list = st.session_state.get("historico_anuncio", [])
-                hist_list.insert(0, {"Data da Alteração": data_hora_atual, "Detalhes das Alterações": texto_mudancas})
+                hist_list.insert(0, {
+                    "Data da Alteração": data_hora_atual, 
+                    "Detalhes das Alterações": texto_mudancas,
+                    "Otimizações": otimizacoes_atuais
+                })
                 st.session_state.historico_anuncio = hist_list
                 historico_json = json.dumps(hist_list)
                 # ---------------------------------------
@@ -902,8 +992,9 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     st.session_state.msg_salvo_anuncio = f"✅ Dados do anúncio '{id_input}' salvos com sucesso na nuvem! ({data_apenas})"
                     st.session_state.id_anuncio_salvo = id_input
                     
-                    # Atualizar o estado original na memória para evitar "falsas mudanças" se o user clicar em gravar duas vezes
-                    st.session_state.estado_original_anuncio = campos_rastreados.copy()
+                    estado_novo = campos_rastreados.copy()
+                    estado_novo["Otimizações"] = otimizacoes_texto
+                    st.session_state.estado_original_anuncio = estado_novo
                     
                     st.rerun()
                 except Exception as e: st.error(f"❌ Erro ao salvar na planilha: {e}")
@@ -919,6 +1010,8 @@ elif menu_selecionado == "Cadastro de Produto":
     if "num_componentes_kit" not in st.session_state: st.session_state.num_componentes_kit = 1
     if "pesquisa_produto" not in st.session_state: st.session_state.pesquisa_produto = ""
     if "pesquisa_kit" not in st.session_state: st.session_state.pesquisa_kit = ""
+    if "sku_original_p" not in st.session_state: st.session_state.sku_original_p = ""
+    if "sku_original_kit" not in st.session_state: st.session_state.sku_original_kit = ""
 
     if "sku_p" not in st.session_state: st.session_state.sku_p = ""
     if "nome_p" not in st.session_state: st.session_state.nome_p = ""
@@ -938,6 +1031,7 @@ elif menu_selecionado == "Cadastro de Produto":
         st.session_state.sku_p = ""
         st.session_state.nome_p = ""
         st.session_state.pesquisa_produto = ""
+        st.session_state.sku_original_p = ""
         st.session_state.custo_p = "0,00"
         st.session_state.forn_p = ""
         st.session_state.data_ref_p = ""
@@ -953,13 +1047,14 @@ elif menu_selecionado == "Cadastro de Produto":
         st.session_state.sku_kit = ""
         st.session_state.nome_kit = ""
         st.session_state.pesquisa_kit = ""
+        st.session_state.sku_original_kit = ""
         st.session_state.num_componentes_kit = 1
         for k in list(st.session_state.keys()):
             if k.startswith("kit_sku_") or k.startswith("kit_qtd_") or k.startswith("kit_nome_") or k.startswith("kit_unit_") or k.startswith("kit_tot_"): 
                 del st.session_state[k]
         st.session_state.limpar_produto = False
 
-    def salvar_produto_completo(dados):
+    def salvar_produto_completo(dados, sku_orig=""):
         df = cached_produtos_data()
         if df is None: df = pd.DataFrame(columns=["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição", "Historico_Precos"])
         client = get_sheets_client()
@@ -980,14 +1075,60 @@ elif menu_selecionado == "Cadastro de Produto":
         
         if not df.empty and "SKU" in df.columns:
             df["SKU"] = df["SKU"].astype(str).str.strip()
-            sku_busca = str(dados["SKU"]).strip()
+            sku_novo = str(dados.get("SKU", "")).strip()
+            sku_busca = str(sku_orig).strip() if str(sku_orig).strip() else sku_novo
+            
             if sku_busca in df["SKU"].values:
                 idx = df[df["SKU"] == sku_busca].index[0]
+                
+                if sku_busca != sku_novo and sku_novo in df["SKU"].values:
+                    st.error(f"❌ O SKU '{sku_novo}' já está em uso por outro produto! Escolha um código diferente.")
+                    return False
+                    
                 sheet.update(range_name=f'A{idx+2}:M{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
                 cached_produtos_data.clear() 
-                return
+                return True
+                
+        if not df.empty and "SKU" in df.columns and str(dados.get("SKU", "")).strip() in df["SKU"].values:
+            st.error(f"❌ O SKU '{str(dados.get('SKU', '')).strip()}' já está cadastrado!")
+            return False
+
         sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
         cached_produtos_data.clear()
+        return True
+
+    def excluir_produto_banco(sku_para_excluir):
+        client = get_sheets_client()
+        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+        
+        sheet_prod = doc.worksheet("Produtos")
+        df_p = cached_produtos_data()
+        if df_p is not None and not df_p.empty and "SKU" in df_p.columns:
+            df_p["SKU_Match"] = df_p["SKU"].astype(str).str.strip()
+            mask = df_p["SKU_Match"] == str(sku_para_excluir).strip()
+            indices = df_p[mask].index.tolist()
+            if indices:
+                linhas_sheet = [i + 2 for i in indices]
+                for linha in sorted(linhas_sheet, reverse=True):
+                    sheet_prod.delete_rows(linha)
+                    
+        try:
+            sheet_kits = doc.worksheet("Kits_Composicao")
+            df_k = cached_kits_composicao()
+            if df_k is not None and not df_k.empty and "SKU do Kit" in df_k.columns:
+                df_k["SKU_Match"] = df_k["SKU do Kit"].astype(str).str.strip()
+                mask_k = df_k["SKU_Match"] == str(sku_para_excluir).strip()
+                indices_k = df_k[mask_k].index.tolist()
+                if indices_k:
+                    linhas_sheet_k = [i + 2 for i in indices_k]
+                    for linha in sorted(linhas_sheet_k, reverse=True):
+                        sheet_kits.delete_rows(linha)
+        except:
+            pass 
+
+        cached_produtos_data.clear()
+        cached_kits_composicao.clear()
+        return True
 
     def processar_calculo_custo_produto():
         val = avaliar_expressao_matematica(st.session_state.custo_p)
@@ -1007,6 +1148,7 @@ elif menu_selecionado == "Cadastro de Produto":
             sku_busca = pesquisa.split(" - ")[0].strip()
             info_prod = buscar_produto_por_sku(sku_busca)
             if info_prod is not None:
+                st.session_state.sku_original_p = str(info_prod.get("SKU", ""))
                 st.session_state.sku_p = str(info_prod.get("SKU", ""))
                 st.session_state.nome_p = str(info_prod.get("Produto", ""))
                 st.session_state.custo_p = formatar_moeda_ui(info_prod.get("Custo", 0))
@@ -1025,19 +1167,20 @@ elif menu_selecionado == "Cadastro de Produto":
                     st.session_state.historico_precos_p = json.loads(str(raw_hist)) if pd.notna(raw_hist) and str(raw_hist).strip() else []
                 except:
                     st.session_state.historico_precos_p = []
+        else:
+            st.session_state.sku_original_p = ""
 
     def puxar_dados_pesquisa_kit_trigger():
         pesquisa = st.session_state.get("pesquisa_kit", "")
         if pesquisa and " - " in pesquisa:
             sku_busca = pesquisa.split(" - ")[0].strip()
             
-            # Puxa o nome e SKU do kit
             info_prod = buscar_produto_por_sku(sku_busca)
             if info_prod is not None:
+                st.session_state.sku_original_kit = str(info_prod.get("SKU", ""))
                 st.session_state.sku_kit = str(info_prod.get("SKU", ""))
                 st.session_state.nome_kit = str(info_prod.get("Produto", ""))
             
-            # Puxa a composição do kit
             df_kits = cached_kits_composicao()
             if df_kits is not None and not df_kits.empty and "SKU do Kit" in df_kits.columns:
                 df_kits["SKU do Kit"] = df_kits["SKU do Kit"].astype(str).str.strip()
@@ -1045,32 +1188,29 @@ elif menu_selecionado == "Cadastro de Produto":
                 
                 if not componentes.empty:
                     st.session_state.num_componentes_kit = len(componentes)
-                    
-                    # Limpa componentes antigos da memória
                     for k in list(st.session_state.keys()):
                         if k.startswith("kit_sku_") or k.startswith("kit_qtd_"):
                             del st.session_state[k]
                             
-                    # Carrega os componentes do banco para os campos
                     for i, (_, row) in enumerate(componentes.iterrows()):
                         st.session_state[f"kit_sku_{i}"] = str(row.get("SKU Componente", ""))
                         st.session_state[f"kit_qtd_{i}"] = int(converter_valor(row.get("Qtd", 1)))
                 else:
-                    # Se selecionou algo que não é Kit, reseta os componentes
                     st.session_state.num_componentes_kit = 1
                     for k in list(st.session_state.keys()):
                         if k.startswith("kit_sku_") or k.startswith("kit_qtd_"):
                             del st.session_state[k]
+        else:
+            st.session_state.sku_original_kit = ""
 
     def puxar_dados_kit_por_sku_trigger():
         sku_kit_digitado = st.session_state.get("sku_kit", "").strip()
         if sku_kit_digitado:
-            # Puxa o nome do kit
             info_prod = buscar_produto_por_sku(sku_kit_digitado)
             if info_prod is not None:
+                st.session_state.sku_original_kit = str(info_prod.get("SKU", ""))
                 st.session_state.nome_kit = str(info_prod.get("Produto", ""))
             
-            # Puxa a composição do kit
             df_kits = cached_kits_composicao()
             if df_kits is not None and not df_kits.empty and "SKU do Kit" in df_kits.columns:
                 df_kits["SKU do Kit"] = df_kits["SKU do Kit"].astype(str).str.strip()
@@ -1105,7 +1245,15 @@ elif menu_selecionado == "Cadastro de Produto":
             
             st.subheader("🔍 Pesquisar Produto")
             lista_pesquisa = [""] + get_lista_pesquisa_produtos()
-            st.selectbox("Selecione um produto cadastrado para carregar os dados:", options=lista_pesquisa, key="pesquisa_produto", on_change=puxar_dados_pesquisa_trigger)
+            
+            c_pesq, c_limp = st.columns([4, 1])
+            with c_pesq:
+                st.selectbox("Selecione um produto cadastrado para editar os dados:", options=lista_pesquisa, key="pesquisa_produto", on_change=puxar_dados_pesquisa_trigger)
+            with c_limp:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("🧹 Limpar Campos", key="btn_limpar_p"):
+                    st.session_state.limpar_produto = True
+                    st.rerun()
             
             st.markdown("---")
             st.subheader("📦 Dados do Produto")
@@ -1128,12 +1276,14 @@ elif menu_selecionado == "Cadastro de Produto":
             c9, c10, c11 = st.columns(3)
             with c9: 
                 lista_forns = get_lista_fornecedores()
-                if not lista_forns: lista_forns = ["⚠️ Cadastre um fornecedor primeiro no menu lateral"]
+                if not lista_forns: 
+                    lista_forns = ["⚠️ Cadastre um fornecedor primeiro no menu lateral"]
+                else:
+                    lista_forns = [""] + lista_forns  # Adiciona a opção em branco no topo da lista
                     
                 forn_atual = st.session_state.get("forn_p", "")
                 idx_forn = lista_forns.index(forn_atual) if forn_atual in lista_forns else 0
                 nome_fornecedor = st.selectbox("Nome do Fornecedor", options=lista_forns, index=idx_forn, key="forn_p")
-
             with c10: 
                 custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto, help="Aceita cálculos! Ex: 10+5*2 ou 21,12-2,5%")
                 v_custo_p = converter_valor(st.session_state.custo_p)
@@ -1164,10 +1314,16 @@ elif menu_selecionado == "Cadastro de Produto":
                 st.info("Nenhum histórico de preço registado para este produto.")
                 
             st.markdown("---")
-            if st.button("💾 Gravar Ficha do Produto", key="btn_prod_simples"):
+            
+            col_btn1, col_btn2, col_vazio = st.columns([2, 2, 6])
+            with col_btn1:
+                btn_salvar = st.button("💾 Gravar Ficha do Produto", key="btn_prod_simples")
+            with col_btn2:
+                btn_excluir = st.button("🗑️ Excluir Produto", key="btn_excluir_simples")
+                
+            if btn_salvar:
                 if sku_p.strip() and nome_p.strip() and v_custo_p > 0:
                     
-                    # --- Lógica do Histórico de Preços ---
                     hist_list = st.session_state.get("historico_precos_p", []).copy()
                     novo_forn = nome_fornecedor if "⚠️" not in nome_fornecedor else ""
                     
@@ -1185,7 +1341,6 @@ elif menu_selecionado == "Cadastro de Produto":
                             hist_list.append({"Data": data_ref_preco, "Fornecedor": novo_forn, "Custo": v_custo_p, "Variação": var_str.replace('.', ',')})
                     
                     historico_json = json.dumps(hist_list)
-                    # -------------------------------------
                     
                     dados_prod = {
                         "SKU": sku_p, "Produto": nome_p, "Custo": v_custo_p,
@@ -1197,12 +1352,27 @@ elif menu_selecionado == "Cadastro de Produto":
                         "Historico_Precos": historico_json
                     }
                     try:
-                        salvar_produto_completo(dados_prod)
-                        st.session_state.sucesso_produto = f"✅ Produto {sku_p} registrado com sucesso!"
-                        st.session_state.limpar_produto = True
-                        st.rerun() 
+                        sku_original = st.session_state.get("sku_original_p", "")
+                        if salvar_produto_completo(dados_prod, sku_orig=sku_original):
+                            st.session_state.sucesso_produto = f"✅ Produto '{sku_p}' registrado/atualizado com sucesso!"
+                            st.session_state.limpar_produto = True
+                            st.rerun() 
                     except Exception as e: st.error(f"❌ Erro ao gravar produto: {e}")
                 else: st.error("❌ Por favor, preencha os campos obrigatórios (SKU, Nome, Preço de Custo).")
+                
+            if btn_excluir:
+                sku_original = st.session_state.get("sku_original_p", "")
+                sku_alvo = sku_original if sku_original else sku_p
+                if sku_alvo.strip():
+                    try:
+                        excluir_produto_banco(sku_alvo)
+                        st.session_state.sucesso_produto = f"✅ Produto '{sku_alvo}' excluído com sucesso!"
+                        st.session_state.limpar_produto = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro ao excluir produto: {e}")
+                else:
+                    st.error("❌ Selecione ou preencha um SKU válido para excluir.")
 
         # ABA 2: KIT (PRODUTO COMPOSTO)
         with tab_kit:
@@ -1211,7 +1381,15 @@ elif menu_selecionado == "Cadastro de Produto":
             
             st.subheader("🔍 Pesquisar Kit")
             lista_pesquisa_kit = [""] + get_lista_pesquisa_produtos()
-            st.selectbox("Selecione um kit cadastrado para carregar os dados:", options=lista_pesquisa_kit, key="pesquisa_kit", on_change=puxar_dados_pesquisa_kit_trigger)
+            
+            c_pesq_kit, c_limp_kit = st.columns([4, 1])
+            with c_pesq_kit:
+                st.selectbox("Selecione um kit cadastrado para editar os dados:", options=lista_pesquisa_kit, key="pesquisa_kit", on_change=puxar_dados_pesquisa_kit_trigger)
+            with c_limp_kit:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("🧹 Limpar Campos", key="btn_limpar_kit"):
+                    st.session_state.limpar_produto = True
+                    st.rerun()
             
             st.markdown("---")
             st.subheader("📦 Dados do Kit")
@@ -1270,55 +1448,74 @@ elif menu_selecionado == "Cadastro de Produto":
             st.markdown("---")
             st.metric("Custo Total do Kit", f"R$ {custo_total_kit:.2f}".replace('.', ','))
             
-            if st.button("💾 Gravar Kit", key="btn_salvar_kit"):
+            col_btn1_k, col_btn2_k, col_vazio_k = st.columns([2, 2, 6])
+            with col_btn1_k:
+                btn_salvar_kit = st.button("💾 Gravar Kit", key="btn_salvar_kit")
+            with col_btn2_k:
+                btn_excluir_kit = st.button("🗑️ Excluir Kit", key="btn_excluir_kit")
+                
+            if btn_salvar_kit:
                 if sku_kit.strip() and nome_kit.strip() and custo_total_kit > 0:
                     dados_kit_prod = {
                         "SKU": sku_kit.strip(), "Produto": nome_kit.strip(), "Custo": custo_total_kit,
                         "Fornecedor": "", "Data Ref": "", "EAN": "", "NCM": "", "CST": "", "Medida": "", "Peso": "", "Campo_Semantico": "", "Descricao": "", "Historico_Precos": "[]"
                     }
                     try:
-                        salvar_produto_completo(dados_kit_prod)
+                        sku_orig_kit = st.session_state.get("sku_original_kit", "")
                         
-                        client = get_sheets_client()
-                        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
-                        try: sheet_kits = doc.worksheet("Kits_Composicao")
-                        except:
-                            sheet_kits = doc.add_worksheet(title="Kits_Composicao", rows="1000", cols="6")
-                            sheet_kits.append_row(["SKU do Kit", "Nome do Kit", "SKU Componente", "Qtd", "Custo Unitário", "Custo Total"], value_input_option="USER_ENTERED")
-                        
-                        # --- EXCLUIR COMPONENTES ANTIGOS SE FOR EDIÇÃO ---
-                        df_k = cached_kits_composicao()
-                        if df_k is not None and not df_k.empty and "SKU do Kit" in df_k.columns:
-                            df_k["SKU_Match"] = df_k["SKU do Kit"].astype(str).str.strip()
-                            mask = df_k["SKU_Match"] == sku_kit.strip()
-                            indices_para_deletar = df_k[mask].index.tolist()
-                            if indices_para_deletar:
-                                linhas_sheet = [idx + 2 for idx in indices_para_deletar]
-                                for linha in sorted(linhas_sheet, reverse=True):
-                                    sheet_kits.delete_rows(linha)
-                        # -------------------------------------------------
+                        if salvar_produto_completo(dados_kit_prod, sku_orig=sku_orig_kit):
+                            client = get_sheets_client()
+                            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                            try: sheet_kits = doc.worksheet("Kits_Composicao")
+                            except:
+                                sheet_kits = doc.add_worksheet(title="Kits_Composicao", rows="1000", cols="6")
+                                sheet_kits.append_row(["SKU do Kit", "Nome do Kit", "SKU Componente", "Qtd", "Custo Unitário", "Custo Total"], value_input_option="USER_ENTERED")
+                            
+                            df_k = cached_kits_composicao()
+                            if df_k is not None and not df_k.empty and "SKU do Kit" in df_k.columns:
+                                df_k["SKU_Match"] = df_k["SKU do Kit"].astype(str).str.strip()
+                                sku_para_deletar = sku_orig_kit if sku_orig_kit else sku_kit.strip()
+                                mask = df_k["SKU_Match"] == sku_para_deletar
+                                indices_para_deletar = df_k[mask].index.tolist()
+                                if indices_para_deletar:
+                                    linhas_sheet = [idx + 2 for idx in indices_para_deletar]
+                                    for linha in sorted(linhas_sheet, reverse=True):
+                                        sheet_kits.delete_rows(linha)
 
-                        linhas_composicao = []
-                        for i in range(st.session_state.num_componentes_kit):
-                            sku_c = st.session_state.get(f"kit_sku_{i}", "").strip()
-                            qtd_c = st.session_state.get(f"kit_qtd_{i}", 1)
-                            if sku_c:
-                                prod_data = buscar_produto_por_sku(sku_c)
-                                if prod_data is not None:
-                                    unit_c = converter_valor(prod_data.get("Custo", 0))
-                                    tot_c = unit_c * qtd_c
-                                    linhas_composicao.append([sku_kit.strip(), nome_kit.strip(), sku_c, qtd_c, f"{unit_c:.2f}".replace('.', ','), f"{tot_c:.2f}".replace('.', ',')])
-                        
-                        if linhas_composicao: sheet_kits.append_rows(linhas_composicao, value_input_option="USER_ENTERED")
-                        
-                        cached_kits_composicao.clear() # Limpa o cache para atualizar o sistema
-                        
-                        st.session_state.sucesso_produto = f"✅ Kit '{sku_kit}' registado/atualizado com sucesso no banco de Produtos!"
-                        st.session_state.limpar_produto = True
-                        st.rerun() 
+                            linhas_composicao = []
+                            for i in range(st.session_state.num_componentes_kit):
+                                sku_c = st.session_state.get(f"kit_sku_{i}", "").strip()
+                                qtd_c = st.session_state.get(f"kit_qtd_{i}", 1)
+                                if sku_c:
+                                    prod_data = buscar_produto_por_sku(sku_c)
+                                    if prod_data is not None:
+                                        unit_c = converter_valor(prod_data.get("Custo", 0))
+                                        tot_c = unit_c * qtd_c
+                                        linhas_composicao.append([sku_kit.strip(), nome_kit.strip(), sku_c, qtd_c, f"{unit_c:.2f}".replace('.', ','), f"{tot_c:.2f}".replace('.', ',')])
+                            
+                            if linhas_composicao: sheet_kits.append_rows(linhas_composicao, value_input_option="USER_ENTERED")
+                            
+                            cached_kits_composicao.clear()
+                            st.session_state.sucesso_produto = f"✅ Kit '{sku_kit}' registado/atualizado com sucesso no banco de Produtos!"
+                            st.session_state.limpar_produto = True
+                            st.rerun() 
                     except Exception as e: st.error(f"❌ Erro ao gravar kit: {e}")
                 else:
                     st.error("❌ Preencha o SKU do Kit, Nome, e garanta que digitou pelo menos 1 componente válido.")
+                    
+            if btn_excluir_kit:
+                sku_orig_kit = st.session_state.get("sku_original_kit", "")
+                sku_alvo_kit = sku_orig_kit if sku_orig_kit else sku_kit
+                if sku_alvo_kit.strip():
+                    try:
+                        excluir_produto_banco(sku_alvo_kit)
+                        st.session_state.sucesso_produto = f"✅ Kit '{sku_alvo_kit}' excluído com sucesso!"
+                        st.session_state.limpar_produto = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro ao excluir kit: {e}")
+                else:
+                    st.error("❌ Selecione ou preencha um SKU válido para excluir.")
 
         # ABA 3: PRODUTOS CADASTRADOS (NOVA ABA)
         with tab_lista:
@@ -1762,6 +1959,10 @@ elif menu_selecionado == "Product ADS":
     if "aba_ativa_ads" not in st.session_state:
         st.session_state.aba_ativa_ads = "🎯 Cadastro e Lista de Campanhas"
 
+    def ativar_analise(nome):
+        st.session_state.campanha_analise_selecionada = nome
+        st.session_state.aba_ativa_ads = "📊 Análise de Campanha"
+
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
         st.title("📈 Product ADS")
@@ -1900,10 +2101,7 @@ elif menu_selecionado == "Product ADS":
                     c4.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row.get('Qtd Anúncios', ''))}</div>", unsafe_allow_html=True)
                     c5.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row.get('Data da Criação', ''))}</div>", unsafe_allow_html=True)
                     
-                    if c6.button("📊 Analisar", key=f"btn_analise_{idx}"):
-                        st.session_state.campanha_analise_selecionada = nome_c
-                        st.session_state.aba_ativa_ads = "📊 Análise de Campanha"
-                        st.rerun()
+                    c6.button("📊 Analisar", key=f"btn_analise_{idx}", on_click=ativar_analise, args=(nome_c,))
 
             else:
                 st.info("Nenhuma campanha de ADS cadastrada até o momento.")
@@ -1929,52 +2127,92 @@ elif menu_selecionado == "Product ADS":
                 st.markdown("---")
                 st.subheader(f"Métricas: {campanha_sel}")
                 
-                col_dt, col_inv, col_rec = st.columns(3)
-                with col_dt:
+                col1, col2, col3 = st.columns(3)
+                with col1:
                     data_analise = st.text_input("Data da Análise", value=datetime.now().strftime("%d/%m/%Y"), key="data_analise")
-                with col_inv:
+                with col2:
+                    impressoes = st.number_input("Impressões", min_value=0, step=1)
+                with col3:
+                    cliques = st.number_input("Cliques", min_value=0, step=1)
+
+                col4, col5 = st.columns(2)
+                with col4:
+                    vendas_ads = st.number_input("Vendas ADS", min_value=0, step=1)
+                with col5:
+                    vendas_org = st.number_input("Vendas ORG", min_value=0, step=1)
+
+                col6, col7, col8 = st.columns(3)
+                with col6:
                     inv_str = st.text_input("Investimento ADS (R$)", value="0,00", key="inv_ads")
-                with col_rec:
-                    rec_str = st.text_input("Receita Gerada (R$)", value="0,00", key="rec_ads")
-                    
-                col_cl, col_cv, col_vazio = st.columns(3)
-                with col_cl:
-                    cliques = st.number_input("Total de Cliques", min_value=0, step=1)
-                with col_cv:
-                    conversoes = st.number_input("Vendas (Conversões)", min_value=0, step=1)
+                with col7:
+                    fat_ads_str = st.text_input("Faturamento ADS (R$)", value="0,00", key="fat_ads")
+                with col8:
+                    fat_org_str = st.text_input("Faturamento ORG (R$)", value="0,00", key="fat_org")
                     
                 val_inv = converter_valor(inv_str)
-                val_rec = converter_valor(rec_str)
+                val_fat_ads = converter_valor(fat_ads_str)
+                val_fat_org = converter_valor(fat_org_str)
                 
-                roas_calc = (val_rec / val_inv) if val_inv > 0 else 0.0
-                cpa_calc = (val_inv / conversoes) if conversoes > 0 else 0.0
+                # Cálculos
+                ctr_calc = (cliques / impressoes) * 100 if impressoes > 0 else 0.0
+                conv_ads_calc = (vendas_ads / cliques) * 100 if cliques > 0 else 0.0
+                conv_tot_calc = ((vendas_ads + vendas_org) / cliques) * 100 if cliques > 0 else 0.0
+                cpc_calc = (val_inv / cliques) if cliques > 0 else 0.0
+                acos_calc = (val_inv / val_fat_ads) * 100 if val_fat_ads > 0 else 0.0
+                roas_calc = (val_fat_ads / val_inv) if val_inv > 0 else 0.0
+                
+                fat_tot = val_fat_ads + val_fat_org
+                tacos_calc = (val_inv / fat_tot) * 100 if fat_tot > 0 else 0.0
+                cpa_calc = (val_inv / vendas_ads) if vendas_ads > 0 else 0.0
                 
                 st.write("**Resultados Apurados:**")
-                r1, r2 = st.columns(2)
-                r1.metric("ROAS Atual", f"{roas_calc:.2f}")
-                r2.metric("CPA (Custo por Aquisição)", f"R$ {cpa_calc:.2f}".replace('.', ','))
+                r1, r2, r3, r4 = st.columns(4)
+                r1.metric("CTR", f"{ctr_calc:.2f}%".replace('.', ','))
+                r2.metric("CONV ADS", f"{conv_ads_calc:.2f}%".replace('.', ','))
+                r3.metric("CONV TOT", f"{conv_tot_calc:.2f}%".replace('.', ','))
+                r4.metric("CPC", f"R$ {cpc_calc:.2f}".replace('.', ','))
+
+                r5, r6, r7, r8 = st.columns(4)
+                r5.metric("ACOS", f"{acos_calc:.2f}%".replace('.', ','))
+                r6.metric("ROAS", f"{roas_calc:.2f}".replace('.', ','))
+                r7.metric("TACOS", f"{tacos_calc:.2f}%".replace('.', ','))
+                r8.metric("CPA", f"R$ {cpa_calc:.2f}".replace('.', ','))
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("💾 Salvar Análise", key="btn_salvar_analise"):
-                    if val_inv >= 0 and val_rec >= 0:
+                    if val_inv >= 0 and val_fat_ads >= 0:
                         try:
                             client = get_sheets_client()
                             doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
                             try:
                                 sheet_an = doc.worksheet("Analises_ADS")
+                                if sheet_an.col_count < 16:
+                                    sheet_an.add_cols(16 - sheet_an.col_count)
+                                
+                                header_an = ["Campanha", "Data da Análise", "Impressões", "Cliques", "Vendas ADS", "Vendas ORG", "Investimento ADS", "Faturamento ADS", "Faturamento ORG", "CTR", "CONV ADS", "CONV TOT", "CPC", "ACOS", "ROAS", "TACOS"]
+                                if sheet_an.row_values(1) != header_an:
+                                    sheet_an.update(range_name='A1:P1', values=[header_an], value_input_option="USER_ENTERED")
                             except:
-                                sheet_an = doc.add_worksheet(title="Analises_ADS", rows="1000", cols="8")
-                                sheet_an.append_row(["Campanha", "Data da Análise", "Investimento", "Receita", "Cliques", "Conversões", "ROAS", "CPA"])
+                                sheet_an = doc.add_worksheet(title="Analises_ADS", rows="1000", cols="16")
+                                sheet_an.append_row(["Campanha", "Data da Análise", "Impressões", "Cliques", "Vendas ADS", "Vendas ORG", "Investimento ADS", "Faturamento ADS", "Faturamento ORG", "CTR", "CONV ADS", "CONV TOT", "CPC", "ACOS", "ROAS", "TACOS"], value_input_option="USER_ENTERED")
                             
                             val_formatados = [
                                 campanha_sel,
                                 data_analise,
-                                f"{val_inv:.2f}".replace('.', ','),
-                                f"{val_rec:.2f}".replace('.', ','),
+                                impressoes,
                                 cliques,
-                                conversoes,
+                                vendas_ads,
+                                vendas_org,
+                                f"{val_inv:.2f}".replace('.', ','),
+                                f"{val_fat_ads:.2f}".replace('.', ','),
+                                f"{val_fat_org:.2f}".replace('.', ','),
+                                f"{ctr_calc:.2f}%".replace('.', ','),
+                                f"{conv_ads_calc:.2f}%".replace('.', ','),
+                                f"{conv_tot_calc:.2f}%".replace('.', ','),
+                                f"R$ {cpc_calc:.2f}".replace('.', ','),
+                                f"{acos_calc:.2f}%".replace('.', ','),
                                 f"{roas_calc:.2f}".replace('.', ','),
-                                f"{cpa_calc:.2f}".replace('.', ',')
+                                f"{tacos_calc:.2f}%".replace('.', ',')
                             ]
                             sheet_an.append_row(val_formatados, value_input_option="USER_ENTERED")
                             cached_analises_ads.clear()
@@ -1988,6 +2226,10 @@ elif menu_selecionado == "Product ADS":
                 df_analises = cached_analises_ads()
                 if df_analises is not None and not df_analises.empty:
                     df_view_an = df_analises[df_analises["Campanha"] == campanha_sel].copy()
+                    
+                    if "Data da Análise" in df_view_an.columns:
+                        df_view_an["Data da Análise"] = df_view_an["Data da Análise"].apply(formatar_data_hora)
+                        
                     if not df_view_an.empty:
                         st.dataframe(
                             df_view_an.style.set_properties(**{
@@ -2008,31 +2250,55 @@ elif menu_selecionado == "Product ADS":
 # =====================================================================
 elif menu_selecionado == "Pós Venda":
     
+    def limpar_num_venda(valor):
+        return re.sub(r'\D', '', str(valor).split('.')[0])
+        
+    if "num_venda" not in st.session_state: st.session_state.num_venda = ""
+    if "id_an_oc" not in st.session_state: st.session_state.id_an_oc = ""
+    if "sku_oc" not in st.session_state: st.session_state.sku_oc = ""
+    if "custo_oc" not in st.session_state: st.session_state.custo_oc = "0,00"
+    if "reputacao_oc" not in st.session_state: st.session_state.reputacao_oc = "Não"
+    if "desc_oc" not in st.session_state: st.session_state.desc_oc = ""
+    if "status_oc" not in st.session_state: st.session_state.status_oc = "Aberto"
+    if "resolucao_oc" not in st.session_state: st.session_state.resolucao_oc = ""
+
     def puxar_dados_ocorrencia_trigger():
-        venda_busca = st.session_state.get("num_venda", "").strip()
+        venda_busca = limpar_num_venda(st.session_state.get("num_venda", ""))
         if venda_busca:
             df_oc = cached_ocorrencias()
             if df_oc is not None and not df_oc.empty and "Número da Venda" in df_oc.columns:
-                df_oc["Número da Venda"] = df_oc["Número da Venda"].astype(str).str.strip()
+                df_oc["Número da Venda"] = df_oc["Número da Venda"].apply(limpar_num_venda)
                 res = df_oc[df_oc["Número da Venda"] == venda_busca]
                 if not res.empty:
                     st.session_state.id_an_oc = str(res.iloc[0].get("ID do Anúncio", ""))
+                    st.session_state.sku_oc = str(res.iloc[0].get("SKU do Produto", ""))
+                    st.session_state.custo_oc = formatar_moeda_ui(res.iloc[0].get("Custo da Ocorrência", 0))
+                    st.session_state.reputacao_oc = str(res.iloc[0].get("Afetou Reputação", "Não"))
                     st.session_state.desc_oc = str(res.iloc[0].get("Descrição da Ocorrência", ""))
                     st.session_state.status_oc = str(res.iloc[0].get("Status", "Aberto"))
+                    st.session_state.resolucao_oc = str(res.iloc[0].get("Resolução", ""))
                 else:
                     st.session_state.id_an_oc = ""
+                    st.session_state.sku_oc = ""
+                    st.session_state.custo_oc = "0,00"
+                    st.session_state.reputacao_oc = "Não"
                     st.session_state.desc_oc = ""
                     st.session_state.status_oc = "Aberto"
+                    st.session_state.resolucao_oc = ""
         else:
             st.session_state.id_an_oc = ""
+            st.session_state.sku_oc = ""
+            st.session_state.custo_oc = "0,00"
+            st.session_state.reputacao_oc = "Não"
             st.session_state.desc_oc = ""
             st.session_state.status_oc = "Aberto"
+            st.session_state.resolucao_oc = ""
 
     def excluir_ocorrencia(num_venda):
         df = cached_ocorrencias()
         if not df.empty:
-            df["Venda_Match"] = df["Número da Venda"].astype(str).str.strip()
-            mask = df["Venda_Match"] == str(num_venda).strip()
+            df["Venda_Match"] = df["Número da Venda"].apply(limpar_num_venda)
+            mask = df["Venda_Match"] == limpar_num_venda(num_venda)
             indices = df[mask].index.tolist()
             if indices:
                 client = get_sheets_client()
@@ -2046,9 +2312,8 @@ elif menu_selecionado == "Pós Venda":
     def encerrar_ocorrencia(num_venda):
         df = cached_ocorrencias()
         if not df.empty:
-            df["Venda_Match"] = df["Número da Venda"].astype(str).str.strip()
-            
-            mask = (df["Venda_Match"] == str(num_venda).strip()) & (df["Status"] != "Encerrado")
+            df["Venda_Match"] = df["Número da Venda"].apply(limpar_num_venda)
+            mask = (df["Venda_Match"] == limpar_num_venda(num_venda)) & (df["Status"] != "Encerrado")
                    
             indices = df[mask].index.tolist()
             if indices:
@@ -2084,60 +2349,97 @@ elif menu_selecionado == "Pós Venda":
             with c2:
                 id_an_oc = st.text_input("ID do Anúncio", key="id_an_oc")
             with c3:
-                status_opcoes = ["Aberto", "Em Tratativa", "Aguardando Cliente"]
-                status_oc = st.selectbox("Status da Ocorrência", status_opcoes, key="status_oc")
+                sku_oc = st.text_input("SKU do Produto", key="sku_oc")
                 
-            c_desc, c_data = st.columns([3, 1])
-            with c_desc:
-                desc_oc = st.text_area("Descrição da Ocorrência", height=100, key="desc_oc")
+            c4, c5, c6 = st.columns(3)
+            with c4:
+                status_opcoes = ["Aberto", "Em Tratativa", "Aguardando Cliente", "Devolução em Atraso", "Encerrado"]
+                status_oc = st.selectbox("Status da Ocorrência", status_opcoes, key="status_oc")
+            with c5:
+                reputacao_oc = st.selectbox("Afetou a reputação da conta?", ["Não", "Sim"], key="reputacao_oc")
+            with c6:
+                custo_oc_str = st.text_input("Custo da Ocorrência (R$)", key="custo_oc")
+                custo_oc = converter_valor(custo_oc_str)
+                
+            desc_oc = st.text_area("Descrição da Ocorrência", height=250, key="desc_oc")
+            
+            c_res, c_data = st.columns([3, 1])
+            with c_res:
+                resolucao_oc = st.text_area("Resolução (Como foi finalizado)", height=250, key="resolucao_oc", placeholder="Preencha este campo ao encerrar a ocorrência.")
             with c_data:
                 data_oc = st.text_input("Data da Atualização", value=datetime.now().strftime("%d/%m/%Y"))
                 
             st.markdown("---")
             
-            col_btn1, col_btn2, col_vazio = st.columns([2, 2, 6])
+            col_btn1, col_btn2, col_btn3, col_vazio = st.columns([2, 2, 2, 4])
             
             with col_btn1:
-                btn_registrar = st.button("💾 Registrar Ocorrência")
+                btn_registrar = st.button("💾 Salvar")
             with col_btn2:
                 btn_excluir = st.button("🗑️ Excluir Ocorrência")
+            with col_btn3:
+                btn_limpar = st.button("🧹 Limpar Campos")
             
+            campos_limpeza = ["num_venda", "id_an_oc", "sku_oc", "custo_oc", "reputacao_oc", "desc_oc", "status_oc", "resolucao_oc"]
+            
+            if btn_limpar:
+                for k in campos_limpeza:
+                    if k in st.session_state:
+                        del st.session_state[k]
+                st.rerun()
+
             if btn_registrar:
                 if num_venda.strip() and desc_oc.strip():
                     try:
                         client = get_sheets_client()
                         doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                        
+                        header_esperado = ["Número da Venda", "ID do Anúncio", "Descrição da Ocorrência", "Data da Atualização", "Status", "Resolução", "SKU do Produto", "Custo da Ocorrência", "Afetou Reputação"]
+                        
                         try:
                             sheet_oc = doc.worksheet("Pos_Venda")
+                            if sheet_oc.col_count < 9:
+                                sheet_oc.add_cols(9 - sheet_oc.col_count)
+                            
+                            header_atual = sheet_oc.row_values(1)
+                            if header_atual != header_esperado:
+                                sheet_oc.update(range_name='A1:I1', values=[header_esperado], value_input_option="USER_ENTERED")
                         except:
-                            sheet_oc = doc.add_worksheet(title="Pos_Venda", rows="1000", cols="5")
-                            sheet_oc.append_row(["Número da Venda", "ID do Anúncio", "Descrição da Ocorrência", "Data da Atualização", "Status"])
+                            sheet_oc = doc.add_worksheet(title="Pos_Venda", rows="1000", cols="9")
+                            sheet_oc.append_row(header_esperado)
                         
                         df_oc = cached_ocorrencias()
+                        
+                        num_limpo = limpar_num_venda(num_venda)
+                        
                         valores_oc = [
-                            num_venda.strip(),
+                            num_limpo,
                             id_an_oc.strip(),
                             desc_oc.strip(),
                             data_oc.strip(),
-                            status_oc
+                            status_oc,
+                            resolucao_oc.strip(),
+                            sku_oc.strip(),
+                            f"{custo_oc:.2f}".replace('.', ','),
+                            reputacao_oc
                         ]
                         
                         if df_oc is not None and not df_oc.empty and "Número da Venda" in df_oc.columns:
-                            df_oc["Número da Venda"] = df_oc["Número da Venda"].astype(str).str.strip()
-                            if num_venda.strip() in df_oc["Número da Venda"].values:
-                                idx = df_oc[df_oc["Número da Venda"] == num_venda.strip()].index[0]
-                                sheet_oc.update(range_name=f'A{idx+2}:E{idx+2}', values=[valores_oc], value_input_option="USER_ENTERED")
+                            df_oc["Venda_Match"] = df_oc["Número da Venda"].apply(limpar_num_venda)
+                            if num_limpo in df_oc["Venda_Match"].values:
+                                idx = df_oc[df_oc["Venda_Match"] == num_limpo].index[0]
+                                sheet_oc.update(range_name=f'A{idx+2}:I{idx+2}', values=[valores_oc], value_input_option="USER_ENTERED")
                                 cached_ocorrencias.clear()
-                                st.session_state.sucesso_ocorrencia = f"✅ Ocorrência para a venda '{num_venda}' atualizada com sucesso!"
-                                for k in ["num_venda", "id_an_oc", "desc_oc", "status_oc"]:
+                                st.session_state.sucesso_ocorrencia = f"✅ Ocorrência para a venda '{num_limpo}' atualizada com sucesso!"
+                                for k in campos_limpeza:
                                     if k in st.session_state:
                                         del st.session_state[k]
                                 st.rerun()
 
                         sheet_oc.append_row(valores_oc, value_input_option="USER_ENTERED")
                         cached_ocorrencias.clear()
-                        st.session_state.sucesso_ocorrencia = f"✅ Ocorrência para a venda '{num_venda}' registada com sucesso!"
-                        for k in ["num_venda", "id_an_oc", "desc_oc", "status_oc"]:
+                        st.session_state.sucesso_ocorrencia = f"✅ Ocorrência para a venda '{num_limpo}' registada com sucesso!"
+                        for k in campos_limpeza:
                             if k in st.session_state:
                                 del st.session_state[k]
                         st.rerun()
@@ -2151,7 +2453,7 @@ elif menu_selecionado == "Pós Venda":
                     if excluir_ocorrencia(num_venda):
                         st.session_state.sucesso_ocorrencia = f"✅ Ocorrência da venda '{num_venda}' excluída com sucesso!"
                         cached_ocorrencias.clear()
-                        for k in ["num_venda", "id_an_oc", "desc_oc", "status_oc"]:
+                        for k in campos_limpeza:
                             if k in st.session_state:
                                 del st.session_state[k]
                         st.rerun()
@@ -2162,31 +2464,38 @@ elif menu_selecionado == "Pós Venda":
             
             st.markdown("<br><br>", unsafe_allow_html=True)
             st.subheader("📋 Ocorrências em Andamento")
+            st.caption("💡 Para inserir a Resolução de uma ocorrência, digite o Número da Venda acima, preencha o campo de Resolução, mude o status para 'Encerrado' e clique em Salvar.")
             
             df_oc = cached_ocorrencias()
             if df_oc is not None and not df_oc.empty and "Status" in df_oc.columns:
                 df_ativas = df_oc[df_oc["Status"] != "Encerrado"].copy()
                 if not df_ativas.empty:
                     st.markdown("---")
-                    c_v, c_an, c_ds, c_dt, c_st, c_ac = st.columns([1.5, 1.5, 3, 1.5, 1.5, 1])
+                    c_v, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
                     c_v.write("**Venda**")
                     c_an.write("**Anúncio**")
-                    c_ds.write("**Descrição**")
+                    c_sku.write("**SKU**")
                     c_dt.write("**Atualização**")
                     c_st.write("**Status**")
+                    c_cus.write("**Custo (R$)**")
                     c_ac.write("**Ação**")
                     st.markdown("---")
                     
                     for idx, row in df_ativas.iterrows():
-                        c_v, c_an, c_ds, c_dt, c_st, c_ac = st.columns([1.5, 1.5, 3, 1.5, 1.5, 1])
-                        c_v.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{str(row.get('Número da Venda', ''))}</div>", unsafe_allow_html=True)
+                        c_v, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+                        
+                        venda_num = limpar_num_venda(row.get('Número da Venda', ''))
+                        custo_val = converter_valor(row.get('Custo da Ocorrência', 0))
+                        
+                        c_v.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{venda_num}</div>", unsafe_allow_html=True)
                         c_an.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{str(row.get('ID do Anúncio', ''))}</div>", unsafe_allow_html=True)
-                        c_ds.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{str(row.get('Descrição da Ocorrência', ''))}</div>", unsafe_allow_html=True)
+                        c_sku.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{str(row.get('SKU do Produto', ''))}</div>", unsafe_allow_html=True)
                         c_dt.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{formatar_data_hora(row.get('Data da Atualização', ''))}</div>", unsafe_allow_html=True)
                         c_st.markdown(f"<div style='margin-top: 5px; font-weight: bold; color: #DA1984;'>{str(row.get('Status', ''))}</div>", unsafe_allow_html=True)
+                        c_cus.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>R$ {custo_val:.2f}</div>".replace('.', ','), unsafe_allow_html=True)
                         
-                        if c_ac.button("🔒 Encerrar", key=f"encerrar_{idx}"):
-                            if encerrar_ocorrencia(row.get("Número da Venda")):
+                        if c_ac.button("🔒 Encerrar", key=f"encerrar_{idx}", help="Encerra rapidamente sem detalhar a resolução"):
+                            if encerrar_ocorrencia(venda_num):
                                 st.session_state.sucesso_ocorrencia = "✅ Ocorrência encerrada e arquivada com sucesso!"
                                 cached_ocorrencias.clear()
                                 st.rerun()
@@ -2204,7 +2513,9 @@ elif menu_selecionado == "Pós Venda":
             if df_oc is not None and not df_oc.empty and "Status" in df_oc.columns:
                 df_hist = df_oc[df_oc["Status"] == "Encerrado"].copy()
                 if not df_hist.empty:
+                    df_hist["Número da Venda"] = df_hist["Número da Venda"].apply(limpar_num_venda)
                     df_hist["Data da Atualização"] = df_hist["Data da Atualização"].apply(formatar_data_hora)
+                    
                     st.dataframe(
                         df_hist.style.set_properties(**{
                             'background-color': '#F4F6F9',
@@ -2306,3 +2617,93 @@ elif menu_selecionado == "Calculadora Simples":
         html_table += "</table>"
         
         st.markdown(html_table, unsafe_allow_html=True)
+
+# =====================================================================
+# MÓDULO 8: CHATBOT
+# =====================================================================
+elif menu_selecionado == "ChatBot":
+    col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
+    with col_conteudo:
+        st.title("🤖 ChatBot - Respostas Rápidas")
+        st.markdown("Cadastre e organize frases prontas para agilizar o atendimento aos seus clientes.")
+
+        tab_cadastro, tab_lista = st.tabs(["📝 Cadastrar / Editar Frase", "💬 Frases Prontas"])
+
+        with tab_cadastro:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("Cadastro de Interação")
+
+            nome_interacao = st.text_input("Nome da Interação", placeholder="Ex: Saudação, Atraso na Entrega, Devolução...")
+            frase_padrao = st.text_area("Frase Padrão (Resposta para o cliente)", height=150, placeholder="Olá! Tudo bem? Pedimos desculpas pelo ocorrido...")
+
+            st.markdown("---")
+            if st.button("💾 Salvar Frase"):
+                if nome_interacao.strip() and frase_padrao.strip():
+                    try:
+                        client = get_sheets_client()
+                        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                        try:
+                            sheet_chat = doc.worksheet("ChatBot")
+                        except:
+                            sheet_chat = doc.add_worksheet(title="ChatBot", rows="1000", cols="3")
+                            sheet_chat.append_row(["Nome da Interação", "Frase Padrão", "Data de Atualização"])
+
+                        df_chat = cached_chatbot_frases()
+                        data_att = datetime.now().strftime("%d/%m/%Y")
+                        valores = [nome_interacao.strip(), frase_padrao.strip(), data_att]
+
+                        if df_chat is not None and not df_chat.empty and "Nome da Interação" in df_chat.columns:
+                            df_chat["Nome_Match"] = df_chat["Nome da Interação"].astype(str).str.strip()
+                            if nome_interacao.strip() in df_chat["Nome_Match"].values:
+                                idx = df_chat[df_chat["Nome_Match"] == nome_interacao.strip()].index[0]
+                                sheet_chat.update(range_name=f'A{idx+2}:C{idx+2}', values=[valores], value_input_option="USER_ENTERED")
+                                cached_chatbot_frases.clear()
+                                st.success(f"✅ Frase '{nome_interacao}' atualizada com sucesso!")
+                                st.rerun()
+
+                        sheet_chat.append_row(valores, value_input_option="USER_ENTERED")
+                        cached_chatbot_frases.clear()
+                        st.success(f"✅ Frase '{nome_interacao}' cadastrada com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro ao salvar frase: {e}")
+                else:
+                    st.error("❌ Preencha o Nome da Interação e a Frase Padrão para continuar.")
+
+        with tab_lista:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("💬 Lista de Frases")
+
+            df_chat = cached_chatbot_frases()
+            if df_chat is not None and not df_chat.empty:
+                for idx, row in df_chat.iterrows():
+                    nome = str(row.get("Nome da Interação", ""))
+                    frase = str(row.get("Frase Padrão", ""))
+                    data_raw = row.get("Data de Atualização", "")
+                    data_att = formatar_data_hora(data_raw)
+
+                    with st.expander(f"📌 {nome}"):
+                        st.caption("💡 Clique no ícone de cópia no canto superior direito do quadro abaixo para copiar a frase.")
+                        st.code(frase, language="text")
+                        
+                        c_btn, c_dt = st.columns([1, 4])
+                        with c_dt:
+                            st.markdown(f"<div style='margin-top:10px; color:gray; font-size:12px;'>Última atualização: {data_att}</div>", unsafe_allow_html=True)
+                        with c_btn:
+                            if st.button("🗑️ Excluir", key=f"del_frase_{idx}"):
+                                try:
+                                    client = get_sheets_client()
+                                    doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                                    sheet_chat = doc.worksheet("ChatBot")
+                                    
+                                    df_atual = pd.DataFrame(sheet_chat.get_all_records(value_render_option="UNFORMATTED_VALUE"))
+                                    df_atual["Nome_Match"] = df_atual["Nome da Interação"].astype(str).str.strip()
+                                    idx_to_del = df_atual[df_atual["Nome_Match"] == nome].index[0]
+                                    
+                                    sheet_chat.delete_rows(int(idx_to_del) + 2)
+                                    cached_chatbot_frases.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Erro ao excluir: {e}")
+            else:
+                st.info("Nenhuma frase cadastrada até o momento. Acesse a aba ao lado para criar a sua primeira interação.")
