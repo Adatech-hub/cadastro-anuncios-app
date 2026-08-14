@@ -431,50 +431,198 @@ def buscar_produto_por_sku(sku_busca):
                         
             return info_prod
     return None
-
 # =====================================================================
 # MÓDULO: CADASTRO DE FORNECEDOR
 # =====================================================================
 if menu_selecionado == "Cadastro de Fornecedor":
+    
+    if "forn_original" not in st.session_state: st.session_state.forn_original = ""
+    if "forn_nome" not in st.session_state: st.session_state.forn_nome = ""
+    if "forn_cnpj" not in st.session_state: st.session_state.forn_cnpj = ""
+    if "forn_razao" not in st.session_state: st.session_state.forn_razao = ""
+    if "forn_end" not in st.session_state: st.session_state.forn_end = ""
+    if "forn_vend" not in st.session_state: st.session_state.forn_vend = ""
+    if "forn_tel" not in st.session_state: st.session_state.forn_tel = ""
+    
+    def puxar_dados_fornecedor():
+        pesquisa = st.session_state.get("forn_pesquisa", "")
+        if pesquisa:
+            try:
+                client = get_sheets_client()
+                doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                sheet = doc.worksheet("Fornecedores")
+                df = pd.DataFrame(sheet.get_all_records())
+                if not df.empty and "Nome do Fornecedor" in df.columns:
+                    df["Nome_Match"] = df["Nome do Fornecedor"].astype(str).str.strip()
+                    res = df[df["Nome_Match"] == pesquisa.strip()]
+                    if not res.empty:
+                        row = res.iloc[0]
+                        st.session_state.forn_original = str(row.get("Nome do Fornecedor", ""))
+                        st.session_state.forn_nome = str(row.get("Nome do Fornecedor", ""))
+                        st.session_state.forn_cnpj = str(row.get("CNPJ", ""))
+                        st.session_state.forn_razao = str(row.get("Razão Social", "")) if "Razão Social" in row else ""
+                        st.session_state.forn_end = str(row.get("Endereço", ""))
+                        st.session_state.forn_vend = str(row.get("Vendedor", ""))
+                        # O replace tira o apóstrofo da visualização na sua tela
+                        st.session_state.forn_tel = str(row.get("Telefone", "")).replace("'", "")
+            except: pass
+        else:
+            st.session_state.forn_original = ""
+            st.session_state.forn_nome = ""
+            st.session_state.forn_cnpj = ""
+            st.session_state.forn_razao = ""
+            st.session_state.forn_end = ""
+            st.session_state.forn_vend = ""
+            st.session_state.forn_tel = ""
+
+    def limpar_fornecedor():
+        for k in ["forn_nome", "forn_cnpj", "forn_razao", "forn_end", "forn_vend", "forn_tel", "forn_original", "forn_pesquisa"]:
+            if k in st.session_state:
+                del st.session_state[k]
+
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
         st.title("🏭 Cadastro de Fornecedor")
-        st.markdown("Registre novos fornecedores para utilizá-los no Cadastro de Produtos e Despesas.")
+        st.markdown("Registre novos fornecedores ou edite os existentes para utilizá-los no Cadastro de Produtos e Despesas.")
         
-        with st.form("form_novo_fornecedor", clear_on_submit=True):
-            st.subheader("Dados do Fornecedor")
-            
-            c1, c2 = st.columns(2)
-            novo_nome_forn = c1.text_input("Nome do Fornecedor *")
-            novo_cnpj = c2.text_input("CNPJ")
-            
-            novo_endereco = st.text_input("Endereço Completo")
-            
-            c3, c4 = st.columns(2)
-            novo_vendedor = c3.text_input("Nome do Vendedor / Contato")
-            novo_telefone = c4.text_input("Telefone")
-            
-            submit_forn = st.form_submit_button("💾 Salvar Fornecedor")
-            
-            if submit_forn:
-                if novo_nome_forn.strip():
-                    try:
-                        client = get_sheets_client()
-                        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
-                        try: sheet = doc.worksheet("Fornecedores")
-                        except:
-                            sheet = doc.add_worksheet(title="Fornecedores", rows="1000", cols="5")
-                            sheet.append_row(["Nome do Fornecedor", "CNPJ", "Endereço", "Vendedor", "Telefone"])
-                        
-                        sheet.append_row([
-                            novo_nome_forn.strip(), novo_cnpj.strip(), novo_endereco.strip(), 
-                            novo_vendedor.strip(), novo_telefone.strip()
-                        ])
-                        st.success(f"✅ Fornecedor '{novo_nome_forn}' cadastrado com sucesso!")
-                        get_lista_fornecedores.clear() 
-                    except Exception as e: st.error(f"❌ Erro ao salvar fornecedor: {e}")
-                else: st.error("❌ O campo 'Nome do Fornecedor' é obrigatório.")
+        st.subheader("🔍 Pesquisar Fornecedor")
+        lista_pesquisa_forn = [""] + get_lista_fornecedores()
+        
+        c_pesq, c_limp = st.columns([4, 1])
+        with c_pesq:
+            st.selectbox("Selecione um fornecedor para editar os dados:", options=lista_pesquisa_forn, key="forn_pesquisa", on_change=puxar_dados_fornecedor)
+        with c_limp:
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("🧹 Limpar Campos", key="btn_limpar_forn"):
+                limpar_fornecedor()
+                st.rerun()
+                
+        st.markdown("---")
+        st.subheader("Dados do Fornecedor")
+        
+        # Linha 1: Nome Fantasia
+        nome_forn = st.text_input("Nome do Fornecedor (Fantasia) *", key="forn_nome")
+        
+        # Linha 2: Razão Social e CNPJ
+        c1, c2 = st.columns(2)
+        with c1: razao_forn = st.text_input("Razão Social", key="forn_razao")
+        with c2: cnpj_forn = st.text_input("CNPJ", key="forn_cnpj")
+        
+        # Linha 3: Endereço
+        end_forn = st.text_input("Endereço Completo", key="forn_end")
+        
+        # Linha 4: Vendedor e Telefone
+        c3, c4 = st.columns(2)
+        with c3: vend_forn = st.text_input("Nome do Vendedor / Contato", key="forn_vend")
+        with c4: tel_forn = st.text_input("Telefone", key="forn_tel", placeholder="Ex: 85 996581537")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_btn1, col_btn2, col_vazio = st.columns([2, 2, 4])
+        
+        with col_btn1:
+            btn_salvar_forn = st.button("💾 Salvar Fornecedor")
+        with col_btn2:
+            btn_excluir_forn = st.button("🗑️ Excluir Fornecedor")
+        
+        if btn_salvar_forn:
+            if nome_forn.strip():
+                try:
+                    client = get_sheets_client()
+                    doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
                     
+                    try: 
+                        sheet = doc.worksheet("Fornecedores")
+                        if sheet.col_count < 6:
+                            sheet.add_cols(6 - sheet.col_count)
+                        header = sheet.row_values(1)
+                        if len(header) < 6 or header[5] != "Razão Social":
+                            sheet.update_cell(1, 6, "Razão Social")
+                    except:
+                        sheet = doc.add_worksheet(title="Fornecedores", rows="1000", cols="6")
+                        sheet.append_row(["Nome do Fornecedor", "CNPJ", "Endereço", "Vendedor", "Telefone", "Razão Social"])
+                    
+                    nome_busca = st.session_state.get("forn_original", "").strip()
+                    if not nome_busca:
+                        nome_busca = nome_forn.strip()
+                        
+                    # --- NOVA LÓGICA DE FORMATAÇÃO DE TELEFONE ---
+                    tel_raw = tel_forn.strip()
+                    nums_tel = re.sub(r'\D', '', tel_raw)
+                    
+                    if nums_tel:
+                        # Remove o 55 inicial se a pessoa já o tiver digitado, para não duplicar
+                        if nums_tel.startswith("55") and len(nums_tel) > 10:
+                            nums_tel = nums_tel[2:]
+                            
+                        # Aplica a máscara +55 (DD) XXXXXXXX
+                        if len(nums_tel) >= 10:
+                            # O apóstrofo (') no início impede que o Google Sheets leia o + como fórmula!
+                            tel_formatado = f"'+55 ({nums_tel[:2]}) {nums_tel[2:]}"
+                        else:
+                            tel_formatado = f"'+55 {nums_tel}"
+                    else:
+                        # Se não tiver números, envia o texto que estava (com o apóstrofo por segurança)
+                        tel_formatado = f"'{tel_raw}" if tel_raw else ""
+                    # ---------------------------------------------
+                        
+                    valores = [
+                        nome_forn.strip(), cnpj_forn.strip(), end_forn.strip(), 
+                        vend_forn.strip(), tel_formatado, razao_forn.strip()
+                    ]
+                    
+                    df = pd.DataFrame(sheet.get_all_records())
+                    atualizado = False
+                    
+                    if not df.empty and "Nome do Fornecedor" in df.columns:
+                        df["Nome_Match"] = df["Nome do Fornecedor"].astype(str).str.strip()
+                        if nome_busca in df["Nome_Match"].values:
+                            idx = df[df["Nome_Match"] == nome_busca].index[0]
+                            sheet.update(range_name=f'A{idx+2}:F{idx+2}', values=[valores], value_input_option="USER_ENTERED")
+                            atualizado = True
+                            
+                    if not atualizado:
+                        sheet.append_row(valores, value_input_option="USER_ENTERED")
+                        
+                    st.success(f"✅ Fornecedor '{nome_forn}' salvo com sucesso!")
+                    get_lista_fornecedores.clear() 
+                    limpar_fornecedor()
+                    st.rerun()
+                except Exception as e: st.error(f"❌ Erro ao salvar fornecedor: {e}")
+            else: st.error("❌ O campo 'Nome do Fornecedor' é obrigatório.")
+            
+        if btn_excluir_forn:
+            nome_busca = st.session_state.get("forn_original", "").strip()
+            nome_alvo = nome_busca if nome_busca else nome_forn.strip()
+            
+            if nome_alvo:
+                try:
+                    client = get_sheets_client()
+                    doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                    sheet = doc.worksheet("Fornecedores")
+                    
+                    df = pd.DataFrame(sheet.get_all_records())
+                    if not df.empty and "Nome do Fornecedor" in df.columns:
+                        df["Nome_Match"] = df["Nome do Fornecedor"].astype(str).str.strip()
+                        
+                        mask = df["Nome_Match"] == nome_alvo
+                        indices = df[mask].index.tolist()
+                        
+                        if indices:
+                            linhas_sheet = [i + 2 for i in indices]
+                            for linha in sorted(linhas_sheet, reverse=True):
+                                sheet.delete_rows(linha)
+                                
+                            st.success(f"✅ Fornecedor '{nome_alvo}' excluído com sucesso!")
+                            get_lista_fornecedores.clear()
+                            limpar_fornecedor()
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ Fornecedor não encontrado na base de dados para exclusão.")
+                except Exception as e:
+                    st.error(f"❌ Erro ao excluir fornecedor: {e}")
+            else:
+                st.error("❌ Selecione no menu superior ou digite o nome de um fornecedor válido para excluir.")
+                
         st.markdown("---")
         st.subheader("Fornecedores Cadastrados")
         try:
@@ -482,10 +630,20 @@ if menu_selecionado == "Cadastro de Fornecedor":
             doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
             sheet_forn = doc.worksheet("Fornecedores")
             df_forn = pd.DataFrame(sheet_forn.get_all_records())
-            if not df_forn.empty: st.dataframe(df_forn, use_container_width=True, hide_index=True)
-            else: st.info("Nenhum fornecedor registrado ainda.")
-        except: st.info("Nenhum fornecedor registrado ainda.")
-
+            
+            if not df_forn.empty:
+               # Reorganiza a ordem das colunas para exibição na tabela
+                ordem_colunas = ["Nome do Fornecedor", "Vendedor", "Telefone", "Endereço", "Razão Social", "CNPJ"]
+                
+                # Garante que só puxa as colunas que realmente existem para evitar erros
+                colunas_finais = [col for col in ordem_colunas if col in df_forn.columns]
+                df_forn = df_forn[colunas_finais]
+                
+                st.dataframe(df_forn, use_container_width=True, hide_index=True)
+            else: 
+                st.info("Nenhum fornecedor registrado ainda.")
+        except: 
+            st.info("Nenhum fornecedor registrado ainda.")
 # =====================================================================
 # MÓDULO 1: CADASTRO DE ANÚNCIOS
 # =====================================================================
@@ -528,6 +686,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.custo = formatar_moeda_ui(info_prod.get("Custo", 0))
                 st.session_state.medida = str(info_prod.get("Medida", ""))
                 st.session_state.peso = str(info_prod.get("Peso", ""))
+                st.session_state.fornecedor_produto = str(info_prod.get("Fornecedor", ""))
 
     def resetar_campos():
         campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "medida", "peso"]
@@ -946,14 +1105,24 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 else:
                     for k, v in campos_rastreados.items():
                         v_orig = estado_orig.get(k, "")
+                        
                         if isinstance(v, float) and isinstance(v_orig, float):
                             if abs(v - v_orig) > 0.001: 
                                 mudancas.append(f"{k} (de {fmt_val(v_orig)} para {fmt_val(v)})")
+                                
+                        elif k == "Estratégias Atacado":
+                            # Validação inteligente de JSON para ignorar diferenças de texto vazio ("") vs array vazio ("[]")
+                            try:
+                                j_v = json.loads(str(v)) if str(v).strip() else []
+                                j_orig = json.loads(str(v_orig)) if str(v_orig).strip() else []
+                                if j_v != j_orig:
+                                    mudancas.append("Estratégias de Atacado alteradas")
+                            except:
+                                if str(v).strip() != str(v_orig).strip():
+                                    mudancas.append("Estratégias de Atacado alteradas")
+                                    
                         elif str(v).strip() != str(v_orig).strip():
-                            if k == "Estratégias Atacado":
-                                mudancas.append("Estratégias de Atacado alteradas")
-                            else:
-                                mudancas.append(f"{k} (de '{fmt_val(v_orig)}' para '{fmt_val(v)}')")
+                            mudancas.append(f"{k} (de '{fmt_val(v_orig)}' para '{fmt_val(v)}')")
 
                 if mudancas:
                     if mudancas[0] == "Novo anúncio cadastrado no sistema.":
@@ -1300,9 +1469,13 @@ elif menu_selecionado == "Cadastro de Produto":
             
             if st.session_state.historico_precos_p:
                 df_hist_precos = pd.DataFrame(st.session_state.historico_precos_p)
+                
+                # Inverte a ordem do DataFrame para exibir a alteração mais recente primeiro
+                df_hist_precos = df_hist_precos.iloc[::-1].reset_index(drop=True)
+                
                 df_hist_precos["Custo"] = df_hist_precos["Custo"].apply(lambda x: f"R$ {float(x):.2f}".replace('.', ','))
                 st.dataframe(
-                    df_hist_precos.style.set_properties(**{
+                        df_hist_precos.style.set_properties(**{
                         'background-color': '#F4F6F9',
                         'color': '#1E1E1E',
                         'border-color': '#E5E7EB'
