@@ -198,7 +198,8 @@ menu_selecionado = st.sidebar.radio("Selecione a ferramenta:", [
     "Product ADS",
     "Pós Venda",
     "Calculadora Simples",
-    "ChatBot"
+    "ChatBot",
+    "Fulfillment"
 ])
 st.sidebar.markdown("---")
 
@@ -654,23 +655,23 @@ elif menu_selecionado == "Cadastro de Anúncios":
             client = get_sheets_client()
             sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes"])
+            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas"])
             return pd.DataFrame(data)
-        except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes"])
+        except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas"])
 
     def salvar_no_repositorio(dados):
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
         
-        header = ["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes"]
-        if sheet.col_count < 18: sheet.add_cols(18 - sheet.col_count)
-        if sheet.row_values(1) != header: sheet.update(range_name='A1:R1', values=[header], value_input_option="USER_ENTERED")
+        header = ["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas"]
+        if sheet.col_count < 19: sheet.add_cols(19 - sheet.col_count)
+        if sheet.row_values(1) != header: sheet.update(range_name='A1:S1', values=[header], value_input_option="USER_ENTERED")
 
         df = carregar_repositorio()
         valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
         if not df.empty and "ID do Anúncio" in df.columns and dados["ID do Anúncio"] in df["ID do Anúncio"].values:
             idx = df[df["ID do Anúncio"] == dados["ID do Anúncio"]].index[0]
-            sheet.update(range_name=f'A{idx+2}:R{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+            sheet.update(range_name=f'A{idx+2}:S{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
         else: sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
 
     def processar_calculo_custo():
@@ -689,7 +690,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.fornecedor_produto = str(info_prod.get("Fornecedor", ""))
 
     def resetar_campos():
-        campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "medida", "peso"]
+        campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "medida", "peso", "fornecedor_produto"]
         for c in campos: st.session_state[c] = ""
         st.session_state.custo = "0,00"
         st.session_state.preco = "0,00"
@@ -711,6 +712,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
         if "msg_salvo_anuncio" in st.session_state: del st.session_state.msg_salvo_anuncio
         if "id_anuncio_salvo" in st.session_state: del st.session_state.id_anuncio_salvo
         if "historico_anuncio" in st.session_state: st.session_state.historico_anuncio = []
+        if "tarefas_anuncio" in st.session_state: st.session_state.tarefas_anuncio = []
         if "estado_original_anuncio" in st.session_state: st.session_state.estado_original_anuncio = {}
 
     if "custo" not in st.session_state: st.session_state.custo = "0,00"
@@ -721,7 +723,9 @@ elif menu_selecionado == "Cadastro de Anúncios":
     if "link_anuncio" not in st.session_state: st.session_state.link_anuncio = ""
     if "medida" not in st.session_state: st.session_state.medida = ""
     if "peso" not in st.session_state: st.session_state.peso = ""
+    if "fornecedor_produto" not in st.session_state: st.session_state.fornecedor_produto = ""
     if "otimizacoes" not in st.session_state: st.session_state.otimizacoes = ""
+    if "tarefas_anuncio" not in st.session_state: st.session_state.tarefas_anuncio = []
 
     id_atual = st.session_state.get("id_anuncio", "")
     if id_atual and st.session_state.get("ultimo_id_carregado") != id_atual:
@@ -746,7 +750,6 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.ultima_atualizacao = converter_data_sheets(row.get("Última Atualização", ""))
                 st.session_state.otimizacoes = str(row.get("Otimizacoes", "")) if pd.notna(row.get("Otimizacoes")) else ""
                 
-                # Desempacotar Estratégias de Atacado
                 raw_atacado = row.get("Estrategias_Atacado", "[]")
                 atacado_json = str(raw_atacado) if pd.notna(raw_atacado) else "[]"
                 try:
@@ -766,14 +769,18 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     for k in list(st.session_state.keys()):
                         if k.startswith("atac_"): del st.session_state[k]
                         
-                # Desempacotar Histórico de Alterações
                 raw_hist = row.get("Historico_Alteracoes", "[]")
                 try:
                     st.session_state.historico_anuncio = json.loads(str(raw_hist)) if pd.notna(raw_hist) and str(raw_hist).strip() else []
                 except:
                     st.session_state.historico_anuncio = []
                     
-                # Guardar Estado Original para comparação no momento de Salvar
+                raw_tarefas = row.get("Tarefas Agendadas", "[]")
+                try:
+                    st.session_state.tarefas_anuncio = json.loads(str(raw_tarefas)) if pd.notna(raw_tarefas) and str(raw_tarefas).strip() else []
+                except:
+                    st.session_state.tarefas_anuncio = []
+                    
                 st.session_state.estado_original_anuncio = {
                     "SKU": st.session_state.sku,
                     "Título": st.session_state.titulo,
@@ -791,15 +798,16 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     "Otimizações": st.session_state.otimizacoes
                 }
                 
-                # Busca as medidas e peso no Cadastro Mestre baseado no SKU carregado
                 if st.session_state.sku:
                     prod_mestre = buscar_produto_por_sku(st.session_state.sku)
                     if prod_mestre is not None:
                         st.session_state.medida = str(prod_mestre.get("Medida", ""))
                         st.session_state.peso = str(prod_mestre.get("Peso", ""))
+                        st.session_state.fornecedor_produto = str(prod_mestre.get("Fornecedor", ""))
                     else:
                         st.session_state.medida = ""
                         st.session_state.peso = ""
+                        st.session_state.fornecedor_produto = ""
 
                 st.session_state.ultimo_id_carregado = id_atual
                 st.session_state.mostrar_sucesso = True
@@ -808,367 +816,485 @@ elif menu_selecionado == "Cadastro de Anúncios":
 
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.5, 3, 0.5])
     with col_conteudo:
-        st.title("Cadastro de Anúncios")
-        if st.button("🧹 Limpar Dados"):
-            resetar_campos()
-            st.rerun()
-
-        st.markdown("---")
-        st.subheader("📢 Dados do Anúncio")
-        col1, col2, col3 = st.columns([1.5, 3, 1.5])
-        with col1: id_input = st.text_input("ID do Anúncio (MLB)", placeholder="Ex: MLB123456789", key="id_anuncio")
-        with col2:
-            titulo_anuncio = st.text_input("Título do Anúncio", key="titulo")
-            if titulo_anuncio: 
-                if len(titulo_anuncio) > 60: st.caption(f"⚠️ Caracteres: {len(titulo_anuncio)} (Acima do limite de 60 do ML)")
-                else: st.caption(f"Caracteres: {len(titulo_anuncio)}/60") 
-        with col3: st.text_input("Última Atualização", value=st.session_state.ultima_atualizacao, disabled=True)
+        st.title("Cadastro e Gestão de Anúncios")
         
-        c_link1, c_link2 = st.columns([4, 1])
-        with c_link1:
-            link_anuncio_input = st.text_input("🔗 Link do Anúncio", placeholder="Ex: https://produto.mercadolivre.com.br/MLB-...", key="link_anuncio")
-        with c_link2:
-            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-            link_atual = st.session_state.get("link_anuncio", "").strip()
-            if link_atual.startswith("http"):
-                st.markdown(f'''
-                    <a href="{link_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">
-                        Acessar 🔗
-                    </a>
-                ''', unsafe_allow_html=True)
-
-        if st.session_state.get("mostrar_sucesso") and id_input == st.session_state.get("ultimo_id_carregado"):
-            st.info("ℹ️ Dados recuperados da nuvem.")
-
-        st.markdown("---")
-        st.subheader("📦 Dados do Produto")
-        col_sku, col_prod, col_custo = st.columns([1, 2, 1])
-        with col_sku: sku_anuncio = st.text_input("SKU do Produto", placeholder="Ex: SKU-12345-X", key="sku", on_change=puxar_dados_produto_por_sku_trigger)
-        with col_prod: nome_produto = st.text_input("Produto", placeholder="Ex: Camiseta Térmica", key="nome_produto")
-        with col_custo: st.text_input("Preço de Custo (R$)", key="custo", on_change=processar_calculo_custo)
+        tab_cadastro, tab_tarefas = st.tabs(["📝 Cadastro / Edição", "📋 Tarefas Pendentes e Alertas"])
         
-        c_medida, c_peso, c_vazio = st.columns([1, 1, 2])
-        with c_medida: st.text_input("Medidas (A x L x C)", key="medida", disabled=True)
-        with c_peso: st.text_input("Peso (kg)", key="peso", disabled=True)
+        with tab_cadastro:
+            if st.button("🧹 Limpar Dados"):
+                resetar_campos()
+                st.rerun()
 
-        custo_produto = converter_valor(st.session_state.custo)
-        st.markdown("---")
-
-        st.subheader("💸 Dados da Venda")
-        col_preco, col_desc, col_final = st.columns(3)
-        with col_preco: preco_original_str = st.text_input("Preço Original (R$)", key="preco")
-        with col_desc: porcentagem_desconto = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key="desconto")
-        
-        preco_original = converter_valor(preco_original_str)
-        preco_final = preco_original * (1 - (porcentagem_desconto / 100))
-        with col_final: st.text_input("Venda Real (R$)", value=f"{preco_final:.2f}", disabled=True)
-
-        col_comissao, col_frete, col_taxa = st.columns(3)
-        with col_comissao: comissao_mkt_porcentagem = st.number_input("Comissão Marketplace (%)", min_value=0.0, step=0.1, key="comissao")
-        with col_frete: custo_frete_str = st.text_input("Custo de Frete (R$)", key="frete")
-        with col_taxa: taxa_fixa_venda_str = st.text_input("Custo Full (R$)", key="taxa")
-
-        col_estorno, col_tacos, col_imposto = st.columns(3)
-        with col_estorno: estorno_ml_str = st.text_input("Estorno/Bonificação ML (R$)", key="estorno")
-        with col_tacos: porcentagem_tacos = st.number_input("Custo de Publicidade ACOS OBJ. (%)", min_value=0.0, max_value=100.0, step=0.1, key="tacos")
-        
-        # PREENCHIMENTO AUTOMÁTICO DO IMPOSTO 7.3
-        with col_imposto: imposto_porcentagem = st.number_input("Imposto sobre NF (%)", min_value=0.0, value=7.3, step=0.1, key="imposto")
-
-        custo_frete = converter_valor(custo_frete_str)
-        taxa_fixa_venda = converter_valor(taxa_fixa_venda_str)
-        estorno_ml = converter_valor(estorno_ml_str)
-
-        valor_comissao = preco_final * (comissao_mkt_porcentagem / 100)
-        valor_imposto = preco_final * (imposto_porcentagem / 100)
-        valor_tacos = preco_final * (porcentagem_tacos / 100)
-
-        custo_total_saidas = custo_produto + custo_frete + valor_comissao + valor_imposto + taxa_fixa_venda + valor_tacos
-        lucro_liquido = (preco_final + estorno_ml) - custo_total_saidas
-        margem_contribuicao = arredondar_customizado((lucro_liquido / preco_final) * 100) if preco_final > 0 else 0.0
-
-        st.divider()
-        st.subheader("📈 Resultados")
-        if titulo_anuncio:
-            st.markdown(f"**Anúncio:** {titulo_anuncio}" + (f" | **SKU:** {sku_anuncio}" if sku_anuncio else ""))
-
-        col_res_custo, col_res_lucro, col_res_margem = st.columns(3)
-        with col_res_custo: st.metric("Custo Total", f"R$ {custo_total_saidas:.2f}")
-        with col_res_lucro: st.metric("Lucro Líquido", f"R$ {lucro_liquido:.2f}")
-        with col_res_margem: st.metric("Margem", f"{margem_contribuicao:.2f}%")
-
-        if margem_contribuicao < 15: st.error("⚠️ Margem baixa! Verifique o desconto ou os custos.")
-        elif 15 <= margem_contribuicao <= 25: st.warning("⚖️ Margem aceitável para giro.")
-        else: st.success("✅ Margem excelente para o seu produto!")
-
-        # --- DETALHAMENTO FINANCEIRO COMPACTO ---
-        st.write("### Detalhamento Financeiro")
-        denominador = preco_final if preco_final > 0 else 1.0
-        valor_desconto = preco_original - preco_final
-
-        descricoes = ["Preço Original", "Desconto", "Preço Final", "Custo Produto", "Comissão", "Frete", "Imposto", "Custo Full", "ACOS OBJ.", "Estorno", "LUCRO LÍQUIDO"]
-        tipos = ["positivo", "negativo", "positivo", "negativo", "negativo", "negativo", "negativo", "negativo", "negativo", "positivo", "positivo"]
-        valores = [preco_original, valor_desconto, preco_final, custo_produto, valor_comissao, custo_frete, valor_imposto, taxa_fixa_venda, valor_tacos, estorno_ml, lucro_liquido]
-
-        html_table = "<table style='width: 100%; border-collapse: collapse; text-align: left; background-color: #F8F9FA; color: #1E1E1E; font-size: 14px; margin-bottom: 1rem;'>"
-        html_table += "<tr><th style='padding: 4px 8px; border-bottom: 1px solid #D1D5DB; font-weight: 600;'>Descrição</th><th style='padding: 4px 8px; border-bottom: 1px solid #D1D5DB; font-weight: 600;'>Valor</th><th style='padding: 4px 8px; border-bottom: 1px solid #D1D5DB; font-weight: 600;'>Percentual (%)</th></tr>"
-
-        for desc, val, tipo in zip(descricoes, valores, tipos):
-            cor_hex = "#198754" if tipo == "positivo" else "#DC3545"
-            sinal = "-" if tipo == "negativo" and val > 0 else ""
+            st.markdown("---")
+            st.subheader("📢 Dados do Anúncio")
+            col1, col2, col3 = st.columns([1.5, 3, 1.5])
+            with col1: id_input = st.text_input("ID do Anúncio (MLB)", placeholder="Ex: MLB123456789", key="id_anuncio")
+            with col2:
+                titulo_anuncio = st.text_input("Título do Anúncio", key="titulo")
+                if titulo_anuncio: 
+                    if len(titulo_anuncio) > 60: st.caption(f"⚠️ Caracteres: {len(titulo_anuncio)} (Acima do limite de 60 do ML)")
+                    else: st.caption(f"Caracteres: {len(titulo_anuncio)}/60") 
+            with col3: st.text_input("Última Atualização", value=st.session_state.ultima_atualizacao, disabled=True)
             
-            pct = (val / denominador) * 100 
-            
-            val_fmt = f"{sinal}R$ {val:.2f}".replace('.', ',')
-            pct_fmt = f"{sinal}{pct:.2f}%".replace('.', ',')
-            
-            peso_fonte = "bold" if desc == "LUCRO LÍQUIDO" else "normal"
-            borda = "border-top: 1px solid #D1D5DB;" if desc == "LUCRO LÍQUIDO" else "border: none;"
-            
-            html_table += f"<tr style='{borda}'><td style='padding: 2px 8px; font-weight: {peso_fonte};'>{desc}</td>"
-            html_table += f"<td style='padding: 2px 8px; color: {cor_hex}; font-weight: {peso_fonte};'>{val_fmt}</td>"
-            html_table += f"<td style='padding: 2px 8px; color: {cor_hex}; font-weight: {peso_fonte};'>{pct_fmt}</td></tr>"
-
-        html_table += "</table>"
-        
-        st.markdown(html_table, unsafe_allow_html=True)
-
-        # =========================================================
-        # NOVA SECÇÃO: VENDA ATACADO
-        # =========================================================
-        st.markdown("---")
-        
-        col_tit_atac, col_del_atac = st.columns([3, 1])
-        with col_tit_atac:
-            st.subheader("📦 Estratégias de Venda no Atacado")
-            
-        if "num_atacado" not in st.session_state:
-            st.session_state.num_atacado = 1
-            
-        def remover_selecionados():
-            to_delete = [i for i in range(st.session_state.num_atacado) if st.session_state.get(f"atac_del_{i}", False)]
-            if not to_delete: return
-            
-            remaining = []
-            for i in range(st.session_state.num_atacado):
-                if i not in to_delete:
-                    remaining.append({
-                        "desc": st.session_state.get(f"atac_desc_{i}", 0.0),
-                        "unid": st.session_state.get(f"atac_unid_{i}", 1),
-                        "frete": st.session_state.get(f"atac_frete_{i}", "0,00")
-                    })
-            
-            for i in range(st.session_state.num_atacado):
-                for k in ["atac_desc_", "atac_unid_", "atac_frete_", "atac_del_"]:
-                    if f"{k}{i}" in st.session_state: del st.session_state[f"{k}{i}"]
-                        
-            st.session_state.num_atacado = len(remaining)
-            for i, data in enumerate(remaining):
-                st.session_state[f"atac_desc_{i}"] = data["desc"]
-                st.session_state[f"atac_unid_{i}"] = data["unid"]
-                st.session_state[f"atac_frete_{i}"] = data["frete"]
-                st.session_state[f"atac_del_{i}"] = False
-
-        with col_del_atac:
-            st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-            if st.session_state.num_atacado > 0:
-                if st.button("🗑️ Excluir Selecionadas"):
-                    remover_selecionados()
-                    st.rerun()
-                    
-        for i in range(st.session_state.num_atacado):
-            st.markdown(f"**Opção {i+1}**")
-            
-            c_chk, c_desc, c_unid, c_frete, c_pu, c_vt, c_lucro = st.columns([0.5, 2, 2, 2, 2, 2, 2.5])
-            
-            with c_chk:
+            c_link1, c_link2 = st.columns([4, 1])
+            with c_link1:
+                link_anuncio_input = st.text_input("🔗 Link do Anúncio", placeholder="Ex: https://produto.mercadolivre.com.br/MLB-...", key="link_anuncio")
+            with c_link2:
                 st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-                st.checkbox(" ", key=f"atac_del_{i}", label_visibility="collapsed")
-                
-            with c_desc:
-                desc_atac = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key=f"atac_desc_{i}")
-            with c_unid:
-                unid_atac = st.number_input("Unidades", min_value=1, step=1, key=f"atac_unid_{i}")
-            with c_frete:
-                if f"atac_frete_{i}" not in st.session_state:
-                    st.session_state[f"atac_frete_{i}"] = "0,00"
-                frete_atac_str = st.text_input("Frete (R$)", key=f"atac_frete_{i}")
-                frete_atac = converter_valor(frete_atac_str)
-                
-            # Cálculos Atacado
-            preco_unit_atac = preco_original * (1 - (desc_atac / 100))
-            valor_total_atac = preco_unit_atac * unid_atac
-            
-            comissao_atac = valor_total_atac * (comissao_mkt_porcentagem / 100)
-            imposto_atac = valor_total_atac * (imposto_porcentagem / 100)
-            tacos_atac = valor_total_atac * (porcentagem_tacos / 100)
-            custo_total_atac = custo_produto * unid_atac
-            
-            lucro_atac = valor_total_atac - frete_atac - comissao_atac - imposto_atac - tacos_atac - custo_total_atac
-            margem_atac = (lucro_atac / valor_total_atac * 100) if valor_total_atac > 0 else 0.0
-            
-            spc = "\u200B" * i
-            with c_pu:
-                st.text_input(f"Preço Unitário (R$){spc}", value=f"{preco_unit_atac:.2f}".replace('.', ','), disabled=True)
-            with c_vt:
-                st.text_input(f"Valor Total (R$){spc}", value=f"{valor_total_atac:.2f}".replace('.', ','), disabled=True)
-            with c_lucro:
-                st.text_input(f"Lucro Líquido / Margem{spc}", value=f"R$ {lucro_atac:.2f} ({margem_atac:.2f}%)".replace('.', ','), disabled=True)
-                
-        if st.button("➕ Acrescentar outra linha de estratégia para venda em atacado"):
-            st.session_state.num_atacado += 1
-            st.rerun()
+                link_atual = st.session_state.get("link_anuncio", "").strip()
+                if link_atual.startswith("http"):
+                    st.markdown(f'''
+                        <a href="{link_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">
+                            Acessar 🔗
+                        </a>
+                    ''', unsafe_allow_html=True)
 
-        # =========================================================
-        # NOVA SECÇÃO: OTIMIZAÇÕES
-        # =========================================================
-        st.markdown("---")
-        st.subheader("💡 Otimizações")
-        otimizacoes_texto = st.text_area("Observações e testes aplicados no anúncio:", key="otimizacoes", height=100)
+            if st.session_state.get("mostrar_sucesso") and id_input == st.session_state.get("ultimo_id_carregado"):
+                st.info("ℹ️ Dados recuperados da nuvem.")
 
-        # =========================================================
-        # NOVA SECÇÃO: HISTÓRICO DE ALTERAÇÕES
-        # =========================================================
-        st.markdown("---")
-        st.subheader("🕒 Histórico de Alterações")
-        
-        historico_atual = st.session_state.get("historico_anuncio", [])
-        if historico_atual:
-            df_hist = pd.DataFrame(historico_atual)
-            if "Otimizações" not in df_hist.columns:
-                df_hist["Otimizações"] = "-"
-            df_hist["Otimizações"] = df_hist["Otimizações"].fillna("-")
+            st.markdown("---")
+            st.subheader("📦 Dados do Produto")
+            col_sku, col_prod, col_custo = st.columns([1, 2, 1])
+            with col_sku: sku_anuncio = st.text_input("SKU do Produto", placeholder="Ex: SKU-12345-X", key="sku", on_change=puxar_dados_produto_por_sku_trigger)
+            with col_prod: nome_produto = st.text_input("Produto", placeholder="Ex: Camiseta Térmica", key="nome_produto")
+            with col_custo: st.text_input("Preço de Custo (R$)", key="custo", on_change=processar_calculo_custo)
             
-            st.dataframe(
-                df_hist.style.set_properties(**{
-                    'background-color': '#F4F6F9',
-                    'color': '#1E1E1E',
-                    'border-color': '#E5E7EB'
-                }),
-                use_container_width=True,
-                hide_index=True 
-            )
-        else:
-            st.info("Nenhuma alteração registada para este anúncio.")
+            c_medida, c_peso, c_forn = st.columns([1, 1, 2])
+            with c_medida: st.text_input("Medidas (A x L x C)", key="medida", disabled=True)
+            with c_peso: st.text_input("Peso (kg)", key="peso", disabled=True)
+            with c_forn: st.text_input("Fornecedor", key="fornecedor_produto", disabled=True)
 
-        st.markdown("---")
-        if st.session_state.get("msg_salvo_anuncio"):
-            if id_input == st.session_state.get("id_anuncio_salvo"):
-                st.success(st.session_state.msg_salvo_anuncio)
-            else:
-                st.session_state.msg_salvo_anuncio = ""
+            custo_produto = converter_valor(st.session_state.custo)
+            st.markdown("---")
 
-        if st.button("💾 Salvar Anúncio na Nuvem"):
-            faltantes = [f for f, v in [("ID do Anúncio", id_input), ("Título", titulo_anuncio), ("Preço de Custo", custo_produto)] if not v or (isinstance(v, float) and v <= 0)]
-            if not faltantes:
-                data_apenas = datetime.now().strftime("%d/%m/%Y")
-                data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                st.session_state.ultima_atualizacao = data_apenas
+            st.subheader("💸 Dados da Venda")
+            col_preco, col_desc, col_final = st.columns(3)
+            with col_preco: preco_original_str = st.text_input("Preço Original (R$)", key="preco")
+            with col_desc: porcentagem_desconto = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key="desconto")
+            
+            preco_original = converter_valor(preco_original_str)
+            preco_final = preco_original * (1 - (porcentagem_desconto / 100))
+            with col_final: st.text_input("Venda Real (R$)", value=f"{preco_final:.2f}".replace('.', ','), disabled=True)
+
+            col_comissao, col_frete, col_taxa = st.columns(3)
+            with col_comissao: comissao_mkt_porcentagem = st.number_input("Comissão Marketplace (%)", min_value=0.0, step=0.1, key="comissao")
+            with col_frete: custo_frete_str = st.text_input("Custo de Frete (R$)", key="frete")
+            with col_taxa: taxa_fixa_venda_str = st.text_input("Custo Full (R$)", key="taxa")
+
+            col_estorno, col_tacos, col_imposto = st.columns(3)
+            with col_estorno: estorno_ml_str = st.text_input("Estorno/Bonificação ML (R$)", key="estorno")
+            with col_tacos: porcentagem_tacos = st.number_input("Custo de Publicidade ACOS OBJ. (%)", min_value=0.0, max_value=100.0, step=0.1, key="tacos")
+            with col_imposto: imposto_porcentagem = st.number_input("Imposto sobre NF (%)", min_value=0.0, value=7.3, step=0.1, key="imposto")
+
+            custo_frete = converter_valor(custo_frete_str)
+            taxa_fixa_venda = converter_valor(taxa_fixa_venda_str)
+            estorno_ml = converter_valor(estorno_ml_str)
+
+            valor_comissao = preco_final * (comissao_mkt_porcentagem / 100)
+            valor_imposto = preco_final * (imposto_porcentagem / 100)
+            valor_tacos = preco_final * (porcentagem_tacos / 100)
+
+            custo_total_saidas = custo_produto + custo_frete + valor_comissao + valor_imposto + taxa_fixa_venda + valor_tacos
+            lucro_liquido = (preco_final + estorno_ml) - custo_total_saidas
+            margem_contribuicao = arredondar_customizado((lucro_liquido / preco_final) * 100) if preco_final > 0 else 0.0
+
+            st.divider()
+            st.subheader("📈 Resultados")
+            if titulo_anuncio:
+                st.markdown(f"**Anúncio:** {titulo_anuncio}" + (f" | **SKU:** {sku_anuncio}" if sku_anuncio else ""))
+
+            col_res_custo, col_res_lucro, col_res_margem = st.columns(3)
+            with col_res_custo: st.metric("Custo Total", f"R$ {custo_total_saidas:.2f}".replace('.', ','))
+            with col_res_lucro: st.metric("Lucro Líquido", f"R$ {lucro_liquido:.2f}".replace('.', ','))
+            with col_res_margem: st.metric("Margem", f"{margem_contribuicao:.2f}%".replace('.', ','))
+
+            if margem_contribuicao < 15: st.error("⚠️ Margem baixa! Verifique o desconto ou os custos.")
+            elif 15 <= margem_contribuicao <= 25: st.warning("⚖️ Margem aceitável para giro.")
+            else: st.success("✅ Margem excelente para o seu produto!")
+
+            st.write("### Detalhamento Financeiro")
+            denominador = preco_final if preco_final > 0 else 1.0
+            valor_desconto = preco_original - preco_final
+
+            descricoes = ["Preço Original", "Desconto", "Preço Final", "Custo Produto", "Comissão", "Frete", "Imposto", "Custo Full", "ACOS OBJ.", "Estorno", "LUCRO LÍQUIDO"]
+            tipos = ["positivo", "negativo", "positivo", "negativo", "negativo", "negativo", "negativo", "negativo", "negativo", "positivo", "positivo"]
+            valores = [preco_original, valor_desconto, preco_final, custo_produto, valor_comissao, custo_frete, valor_imposto, taxa_fixa_venda, valor_tacos, estorno_ml, lucro_liquido]
+
+            html_table = "<table style='width: 100%; border-collapse: collapse; text-align: left; background-color: #F8F9FA; color: #1E1E1E; font-size: 14px; margin-bottom: 1rem;'>"
+            html_table += "<tr><th style='padding: 4px 8px; border-bottom: 1px solid #D1D5DB; font-weight: 600;'>Descrição</th><th style='padding: 4px 8px; border-bottom: 1px solid #D1D5DB; font-weight: 600;'>Valor</th><th style='padding: 4px 8px; border-bottom: 1px solid #D1D5DB; font-weight: 600;'>Percentual (%)</th></tr>"
+
+            for desc, val, tipo in zip(descricoes, valores, tipos):
+                cor_hex = "#198754" if tipo == "positivo" else "#DC3545"
+                sinal = "-" if tipo == "negativo" and val > 0 else ""
                 
-                # Agrupando atacado
-                atacado_data = []
-                for i in range(st.session_state.get("num_atacado", 0)):
-                    atacado_data.append({
-                        "desconto": st.session_state.get(f"atac_desc_{i}", 0.0),
-                        "unidades": st.session_state.get(f"atac_unid_{i}", 1),
-                        "frete": st.session_state.get(f"atac_frete_{i}", "0,00")
-                    })
-                estrategias_json = json.dumps(atacado_data)
+                pct = (val / denominador) * 100 
                 
-                # --- LÓGICA DE AUDITORIA E HISTÓRICO ---
-                campos_rastreados = {
-                    "SKU": sku_anuncio,
-                    "Título": titulo_anuncio,
-                    "Custo": custo_produto,
-                    "Preço Original": preco_original,
-                    "Desconto": porcentagem_desconto,
-                    "Frete": custo_frete,
-                    "Comissão": comissao_mkt_porcentagem,
-                    "Custo Full": taxa_fixa_venda,
-                    "Estorno": estorno_ml,
-                    "ACOS OBJ.": porcentagem_tacos,
-                    "Imposto": imposto_porcentagem,
-                    "Link": link_anuncio_input,
-                    "Estratégias Atacado": estrategias_json
-                }
+                val_fmt = f"{sinal}R$ {val:.2f}".replace('.', ',')
+                pct_fmt = f"{sinal}{pct:.2f}%".replace('.', ',')
                 
-                estado_orig = st.session_state.get("estado_original_anuncio", {})
-                mudancas = []
+                peso_fonte = "bold" if desc == "LUCRO LÍQUIDO" else "normal"
+                borda = "border-top: 1px solid #D1D5DB;" if desc == "LUCRO LÍQUIDO" else "border: none;"
                 
-                def fmt_val(v):
-                    if isinstance(v, float):
-                        return f"{v:.2f}".replace('.', ',')
-                    return str(v).strip()
+                html_table += f"<tr style='{borda}'><td style='padding: 2px 8px; font-weight: {peso_fonte};'>{desc}</td>"
+                html_table += f"<td style='padding: 2px 8px; color: {cor_hex}; font-weight: {peso_fonte};'>{val_fmt}</td>"
+                html_table += f"<td style='padding: 2px 8px; color: {cor_hex}; font-weight: {peso_fonte};'>{pct_fmt}</td></tr>"
+
+            html_table += "</table>"
+            
+            st.markdown(html_table, unsafe_allow_html=True)
+
+            # =========================================================
+            # SECÇÃO: VENDA ATACADO
+            # =========================================================
+            st.markdown("---")
+            
+            col_tit_atac, col_del_atac = st.columns([3, 1])
+            with col_tit_atac:
+                st.subheader("📦 Estratégias de Venda no Atacado")
                 
-                if not estado_orig:
-                    mudancas.append("Novo anúncio cadastrado no sistema.")
-                else:
-                    for k, v in campos_rastreados.items():
-                        v_orig = estado_orig.get(k, "")
+            if "num_atacado" not in st.session_state:
+                st.session_state.num_atacado = 1
+                
+            def remover_selecionados():
+                to_delete = [i for i in range(st.session_state.num_atacado) if st.session_state.get(f"atac_del_{i}", False)]
+                if not to_delete: return
+                
+                remaining = []
+                for i in range(st.session_state.num_atacado):
+                    if i not in to_delete:
+                        remaining.append({
+                            "desc": st.session_state.get(f"atac_desc_{i}", 0.0),
+                            "unid": st.session_state.get(f"atac_unid_{i}", 1),
+                            "frete": st.session_state.get(f"atac_frete_{i}", "0,00")
+                        })
+                
+                for i in range(st.session_state.num_atacado):
+                    for k in ["atac_desc_", "atac_unid_", "atac_frete_", "atac_del_"]:
+                        if f"{k}{i}" in st.session_state: del st.session_state[f"{k}{i}"]
+                            
+                st.session_state.num_atacado = len(remaining)
+                for i, data in enumerate(remaining):
+                    st.session_state[f"atac_desc_{i}"] = data["desc"]
+                    st.session_state[f"atac_unid_{i}"] = data["unid"]
+                    st.session_state[f"atac_frete_{i}"] = data["frete"]
+                    st.session_state[f"atac_del_{i}"] = False
+
+            with col_del_atac:
+                st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+                if st.session_state.num_atacado > 0:
+                    if st.button("🗑️ Excluir Selecionadas"):
+                        remover_selecionados()
+                        st.rerun()
                         
-                        if isinstance(v, float) and isinstance(v_orig, float):
-                            if abs(v - v_orig) > 0.001: 
-                                mudancas.append(f"{k} (de {fmt_val(v_orig)} para {fmt_val(v)})")
-                                
-                        elif k == "Estratégias Atacado":
-                            # Validação inteligente de JSON para ignorar diferenças de texto vazio ("") vs array vazio ("[]")
-                            try:
-                                j_v = json.loads(str(v)) if str(v).strip() else []
-                                j_orig = json.loads(str(v_orig)) if str(v_orig).strip() else []
-                                if j_v != j_orig:
-                                    mudancas.append("Estratégias de Atacado alteradas")
-                            except:
-                                if str(v).strip() != str(v_orig).strip():
-                                    mudancas.append("Estratégias de Atacado alteradas")
-                                    
-                        elif str(v).strip() != str(v_orig).strip():
-                            mudancas.append(f"{k} (de '{fmt_val(v_orig)}' para '{fmt_val(v)}')")
+            for i in range(st.session_state.num_atacado):
+                st.markdown(f"**Opção {i+1}**")
+                
+                c_chk, c_desc, c_unid, c_frete, c_pu, c_vt, c_lucro = st.columns([0.5, 2, 2, 2, 2, 2, 2.5])
+                
+                with c_chk:
+                    st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                    st.checkbox(" ", key=f"atac_del_{i}", label_visibility="collapsed")
+                    
+                with c_desc:
+                    desc_atac = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key=f"atac_desc_{i}")
+                with c_unid:
+                    unid_atac = st.number_input("Unidades", min_value=1, step=1, key=f"atac_unid_{i}")
+                with c_frete:
+                    if f"atac_frete_{i}" not in st.session_state:
+                        st.session_state[f"atac_frete_{i}"] = "0,00"
+                    frete_atac_str = st.text_input("Frete (R$)", key=f"atac_frete_{i}")
+                    frete_atac = converter_valor(frete_atac_str)
+                    
+                # Cálculos Atacado
+                preco_unit_atac = preco_original * (1 - (desc_atac / 100))
+                valor_total_atac = preco_unit_atac * unid_atac
+                
+                comissao_atac = valor_total_atac * (comissao_mkt_porcentagem / 100)
+                imposto_atac = valor_total_atac * (imposto_porcentagem / 100)
+                tacos_atac = valor_total_atac * (porcentagem_tacos / 100)
+                custo_total_atac = custo_produto * unid_atac
+                
+                lucro_atac = valor_total_atac - frete_atac - comissao_atac - imposto_atac - tacos_atac - custo_total_atac
+                margem_atac = (lucro_atac / valor_total_atac * 100) if valor_total_atac > 0 else 0.0
+                
+                spc = "\u200B" * i
+                with c_pu:
+                    st.text_input(f"Preço Unitário (R$){spc}", value=f"{preco_unit_atac:.2f}".replace('.', ','), disabled=True)
+                with c_vt:
+                    st.text_input(f"Valor Total (R$){spc}", value=f"{valor_total_atac:.2f}".replace('.', ','), disabled=True)
+                with c_lucro:
+                    st.text_input(f"Lucro Líquido / Margem{spc}", value=f"R$ {lucro_atac:.2f} ({margem_atac:.2f}%)".replace('.', ','), disabled=True)
+                    
+            if st.button("➕ Acrescentar outra linha de estratégia para venda em atacado"):
+                st.session_state.num_atacado += 1
+                st.rerun()
 
-                if mudancas:
-                    if mudancas[0] == "Novo anúncio cadastrado no sistema.":
-                        texto_mudancas = "Novo anúncio cadastrado no sistema."
+            # =========================================================
+            # SECÇÃO: OTIMIZAÇÕES
+            # =========================================================
+            st.markdown("---")
+            st.subheader("💡 Otimizações")
+            otimizacoes_texto = st.text_area("Observações e testes aplicados no anúncio:", key="otimizacoes", height=100)
+
+            # ==========================================================
+            # NOVA SEÇÃO: AGENDAMENTO DE TAREFAS
+            # ==========================================================
+            st.markdown("---")
+            st.subheader("📅 Agendamento de Tarefas")
+            st.markdown("Crie tarefas para serem acompanhadas na aba de **Tarefas Pendentes**.")
+            
+            c_t1, c_t2, c_t3 = st.columns([3, 1.5, 1.5])
+            with c_t1: nova_desc_tarefa = st.text_input("Descrição da Tarefa", key="nova_desc_tarefa", placeholder="Ex: Ajustar título SEO após testes")
+            with c_t2: nova_data_tarefa = st.text_input("Data de Vencimento", key="nova_data_tarefa", placeholder="DD/MM/AAAA")
+            with c_t3: 
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("➕ Adicionar Tarefa"):
+                    if nova_desc_tarefa.strip():
+                        st.session_state.tarefas_anuncio.append({
+                            "descricao": nova_desc_tarefa.strip(),
+                            "vencimento": nova_data_tarefa.strip(),
+                            "status": "Pendente"
+                        })
+                        st.session_state.nova_desc_tarefa = ""
+                        st.session_state.nova_data_tarefa = ""
+                        st.rerun()
                     else:
-                        texto_mudancas = " | ".join(mudancas)
+                        st.warning("Preencha a descrição da tarefa.")
+
+            if st.session_state.tarefas_anuncio:
+                st.markdown("<br><b>Tarefas para este anúncio:</b>", unsafe_allow_html=True)
+                for i, tar in enumerate(st.session_state.tarefas_anuncio):
+                    c_tdesc, c_tvenc, c_tdel = st.columns([4, 2, 1])
+                    c_tdesc.markdown(f"📌 {tar.get('descricao', '')}")
+                    c_tvenc.markdown(f"📅 {tar.get('vencimento', '')}")
+                    if c_tdel.button("🗑️ Excluir", key=f"del_tar_{i}"):
+                        st.session_state.tarefas_anuncio.pop(i)
+                        st.rerun()
+            else:
+                st.info("Nenhuma tarefa manual agendada para este anúncio.")
+            # ==========================================================
+
+            # =========================================================
+            # SECÇÃO: HISTÓRICO DE ALTERAÇÕES
+            # =========================================================
+            st.markdown("---")
+            st.subheader("🕒 Histórico de Alterações")
+            
+            historico_atual = st.session_state.get("historico_anuncio", [])
+            if historico_atual:
+                df_hist = pd.DataFrame(historico_atual)
+                if "Otimizações" not in df_hist.columns:
+                    df_hist["Otimizações"] = "-"
+                df_hist["Otimizações"] = df_hist["Otimizações"].fillna("-")
+                
+                st.dataframe(
+                    df_hist.style.set_properties(**{
+                        'background-color': '#F4F6F9',
+                        'color': '#1E1E1E',
+                        'border-color': '#E5E7EB'
+                    }),
+                    use_container_width=True,
+                    hide_index=True 
+                )
+            else:
+                st.info("Nenhuma alteração registada para este anúncio.")
+
+            st.markdown("---")
+            if st.session_state.get("msg_salvo_anuncio"):
+                if id_input == st.session_state.get("id_anuncio_salvo"):
+                    st.success(st.session_state.msg_salvo_anuncio)
                 else:
-                    texto_mudancas = "Anúncio guardado sem alterações nos valores principais."
+                    st.session_state.msg_salvo_anuncio = ""
 
-                otimizacoes_atuais = otimizacoes_texto.strip() if otimizacoes_texto.strip() else "-"
-
-                # Atualiza a lista do histórico
-                hist_list = st.session_state.get("historico_anuncio", [])
-                hist_list.insert(0, {
-                    "Data da Alteração": data_hora_atual, 
-                    "Detalhes das Alterações": texto_mudancas,
-                    "Otimizações": otimizacoes_atuais
-                })
-                st.session_state.historico_anuncio = hist_list
-                historico_json = json.dumps(hist_list)
-                # ---------------------------------------
-                
-                dados_salvar = {
-                    "ID do Anúncio": id_input, "SKU": sku_anuncio, "Produto": st.session_state.nome_produto, "Título": titulo_anuncio, 
-                    "Custo": custo_produto, "Preço Original": preco_original, "Desconto": porcentagem_desconto, 
-                    "Frete": custo_frete, "Comissão": comissao_mkt_porcentagem, "Taxa Fixa": taxa_fixa_venda, 
-                    "Estorno": estorno_ml, "TACOS": porcentagem_tacos, "Imposto": imposto_porcentagem, "Última Atualização": data_apenas,
-                    "Link do Anúncio": link_anuncio_input,
-                    "Estrategias_Atacado": estrategias_json,
-                    "Historico_Alteracoes": historico_json,
-                    "Otimizacoes": otimizacoes_texto
-                }
-                
-                try:
-                    salvar_no_repositorio(dados_salvar)
-                    st.session_state.msg_salvo_anuncio = f"✅ Dados do anúncio '{id_input}' salvos com sucesso na nuvem! ({data_apenas})"
-                    st.session_state.id_anuncio_salvo = id_input
+            if st.button("💾 Salvar Anúncio na Nuvem"):
+                faltantes = [f for f, v in [("ID do Anúncio", id_input), ("Título", titulo_anuncio), ("Preço de Custo", custo_produto)] if not v or (isinstance(v, float) and v <= 0)]
+                if not faltantes:
+                    data_apenas = datetime.now().strftime("%d/%m/%Y")
+                    data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                    st.session_state.ultima_atualizacao = data_apenas
                     
-                    estado_novo = campos_rastreados.copy()
-                    estado_novo["Otimizações"] = otimizacoes_texto
-                    st.session_state.estado_original_anuncio = estado_novo
+                    # Agrupando atacado
+                    atacado_data = []
+                    for i in range(st.session_state.get("num_atacado", 0)):
+                        atacado_data.append({
+                            "desconto": st.session_state.get(f"atac_desc_{i}", 0.0),
+                            "unidades": st.session_state.get(f"atac_unid_{i}", 1),
+                            "frete": st.session_state.get(f"atac_frete_{i}", "0,00")
+                        })
+                    estrategias_json = json.dumps(atacado_data)
+                    tarefas_json = json.dumps(st.session_state.get("tarefas_anuncio", []))
                     
-                    st.rerun()
-                except Exception as e: st.error(f"❌ Erro ao salvar na planilha: {e}")
-            else: st.error(f"❌ Erro ao salvar: Preencha os campos obrigatórios: {', '.join(faltantes)}")
+                    # --- LÓGICA DE AUDITORIA E HISTÓRICO ---
+                    campos_rastreados = {
+                        "SKU": sku_anuncio,
+                        "Título": titulo_anuncio,
+                        "Custo": custo_produto,
+                        "Preço Original": preco_original,
+                        "Desconto": porcentagem_desconto,
+                        "Frete": custo_frete,
+                        "Comissão": comissao_mkt_porcentagem,
+                        "Custo Full": taxa_fixa_venda,
+                        "Estorno": estorno_ml,
+                        "ACOS OBJ.": porcentagem_tacos,
+                        "Imposto": imposto_porcentagem,
+                        "Link": link_anuncio_input,
+                        "Estratégias Atacado": estrategias_json
+                    }
+                    
+                    estado_orig = st.session_state.get("estado_original_anuncio", {})
+                    mudancas = []
+                    
+                    def fmt_val(v):
+                        if isinstance(v, float):
+                            return f"{v:.2f}".replace('.', ',')
+                        return str(v).strip()
+                    
+                    if not estado_orig:
+                        mudancas.append("Novo anúncio cadastrado no sistema.")
+                    else:
+                        for k, v in campos_rastreados.items():
+                            v_orig = estado_orig.get(k, "")
+                            
+                            if isinstance(v, float) and isinstance(v_orig, float):
+                                if abs(v - v_orig) > 0.001: 
+                                    mudancas.append(f"{k} (de {fmt_val(v_orig)} para {fmt_val(v)})")
+                                    
+                            elif k == "Estratégias Atacado":
+                                # Validação inteligente de JSON para ignorar diferenças de texto vazio ("") vs array vazio ("[]")
+                                try:
+                                    j_v = json.loads(str(v)) if str(v).strip() else []
+                                    j_orig = json.loads(str(v_orig)) if str(v_orig).strip() else []
+                                    if j_v != j_orig:
+                                        mudancas.append("Estratégias de Atacado alteradas")
+                                except:
+                                    if str(v).strip() != str(v_orig).strip():
+                                        mudancas.append("Estratégias de Atacado alteradas")
+                                        
+                            elif str(v).strip() != str(v_orig).strip():
+                                mudancas.append(f"{k} (de '{fmt_val(v_orig)}' para '{fmt_val(v)}')")
 
+                    if mudancas:
+                        if mudancas[0] == "Novo anúncio cadastrado no sistema.":
+                            texto_mudancas = "Novo anúncio cadastrado no sistema."
+                        else:
+                            texto_mudancas = " | ".join(mudancas)
+                    else:
+                        texto_mudancas = "Anúncio guardado sem alterações nos valores principais."
+
+                    otimizacoes_atuais = otimizacoes_texto.strip() if otimizacoes_texto.strip() else "-"
+
+                    # Atualiza a lista do histórico
+                    hist_list = st.session_state.get("historico_anuncio", [])
+                    hist_list.insert(0, {
+                        "Data da Alteração": data_hora_atual, 
+                        "Detalhes das Alterações": texto_mudancas,
+                        "Otimizações": otimizacoes_atuais
+                    })
+                    st.session_state.historico_anuncio = hist_list
+                    historico_json = json.dumps(hist_list)
+                    # ---------------------------------------
+                    
+                    dados_salvar = {
+                        "ID do Anúncio": id_input, "SKU": sku_anuncio, "Produto": st.session_state.nome_produto, "Título": titulo_anuncio, 
+                        "Custo": custo_produto, "Preço Original": preco_original, "Desconto": porcentagem_desconto, 
+                        "Frete": custo_frete, "Comissão": comissao_mkt_porcentagem, "Taxa Fixa": taxa_fixa_venda, 
+                        "Estorno": estorno_ml, "TACOS": porcentagem_tacos, "Imposto": imposto_porcentagem, "Última Atualização": data_apenas,
+                        "Link do Anúncio": link_anuncio_input,
+                        "Estrategias_Atacado": estrategias_json,
+                        "Historico_Alteracoes": historico_json,
+                        "Otimizacoes": otimizacoes_texto,
+                        "Tarefas Agendadas": tarefas_json
+                    }
+                    
+                    try:
+                        salvar_no_repositorio(dados_salvar)
+                        st.session_state.msg_salvo_anuncio = f"✅ Dados do anúncio '{id_input}' salvos com sucesso na nuvem! ({data_apenas})"
+                        st.session_state.id_anuncio_salvo = id_input
+                        
+                        estado_novo = campos_rastreados.copy()
+                        estado_novo["Otimizações"] = otimizacoes_texto
+                        st.session_state.estado_original_anuncio = estado_novo
+                        
+                        st.rerun()
+                    except Exception as e: st.error(f"❌ Erro ao salvar na planilha: {e}")
+                else: st.error(f"❌ Erro ao salvar: Preencha os campos obrigatórios: {', '.join(faltantes)}")
+
+        # ==========================================================
+        # NOVA ABA: TAREFAS PENDENTES
+        # ==========================================================
+        with tab_tarefas:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.write("Acompanhe aqui os alertas de verificação de anúncios estagnados e as tarefas manuais agendadas.")
+            
+            repo_dados = carregar_repositorio()
+            
+            alertas_auto = []
+            tarefas_manuais = []
+            hoje = datetime.now()
+            
+            if not repo_dados.empty and "ID do Anúncio" in repo_dados.columns:
+                for idx, row in repo_dados.iterrows():
+                    id_an_lista = str(row.get("ID do Anúncio", ""))
+                    tit_an_lista = str(row.get("Título", ""))
+                    anuncio_ref = f"{id_an_lista} - {tit_an_lista}"
+                    
+                    # 1. Varredura Automática (> 7 dias sem atualização)
+                    data_att_str = str(row.get("Última Atualização", ""))
+                    if data_att_str:
+                        try:
+                            # Tenta converter a data da planilha
+                            data_att = datetime.strptime(data_att_str.strip(), "%d/%m/%Y")
+                            dias_passados = (hoje - data_att).days
+                            if dias_passados > 7:
+                                alertas_auto.append({
+                                    "Anúncio": anuncio_ref,
+                                    "Última Atualização": data_att_str,
+                                    "Dias S/ Atualizar": dias_passados,
+                                    "Tarefa Automática": "⚠️ Verificar Anúncio"
+                                })
+                        except:
+                            pass
+                    
+                    # 2. Varredura de Tarefas Manuais Agendadas
+                    raw_tarefas_lista = str(row.get("Tarefas Agendadas", "[]"))
+                    try:
+                        tar_list = json.loads(raw_tarefas_lista) if pd.notna(raw_tarefas_lista) and raw_tarefas_lista.strip() else []
+                        for t in tar_list:
+                            tarefas_manuais.append({
+                                "Anúncio": anuncio_ref,
+                                "Tarefa": t.get("descricao", ""),
+                                "Vencimento": t.get("vencimento", "")
+                            })
+                    except:
+                        pass
+                        
+            st.markdown("#### 🚨 Alertas de Atualização (> 7 dias)")
+            if alertas_auto:
+                df_alertas = pd.DataFrame(alertas_auto)
+                st.dataframe(
+                    df_alertas.style.set_properties(**{
+                        'background-color': '#FFF3CD',
+                        'color': '#856404',
+                        'font-weight': 'bold'
+                    }),
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.success("✅ Excelente! Todos os anúncios registados foram atualizados nos últimos 7 dias.")
+                
+            st.markdown("---")
+            st.markdown("#### 📅 Tarefas Manuais Agendadas")
+            if tarefas_manuais:
+                df_manuais = pd.DataFrame(tarefas_manuais)
+                st.dataframe(
+                    df_manuais.style.set_properties(**{
+                        'background-color': '#F4F6F9',
+                        'color': '#1E1E1E'
+                    }),
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.info("Nenhuma tarefa manual agendada nos anúncios.")
 # =====================================================================
 # MÓDULO 2: CADASTRO DE PRODUTO & KITS
 # =====================================================================
@@ -2880,3 +3006,117 @@ elif menu_selecionado == "ChatBot":
                                     st.error(f"❌ Erro ao excluir: {e}")
             else:
                 st.info("Nenhuma frase cadastrada até o momento. Acesse a aba ao lado para criar a sua primeira interação.")
+
+# =====================================================================
+# MÓDULO 9: FULFILLMENT
+# =====================================================================
+elif menu_selecionado == "Fulfillment":
+    
+    # Inicializa a lista de itens do envio atual na memória
+    if "full_itens" not in st.session_state:
+        st.session_state.full_itens = []
+
+    col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
+    with col_conteudo:
+        st.title("📦 Fulfillment")
+        st.markdown("Crie e faça a gestão dos seus envios de stock para o centro de distribuição (Full).")
+
+        # ---------------------------------------------------------
+        # CABEÇALHO: DADOS DO ENVIO
+        # ---------------------------------------------------------
+        st.subheader("Dados do Envio")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            nome_envio = st.text_input("Nome do Envio", placeholder="Ex: Envio 15 - Ago/26")
+        with c2:
+            codigo_envio = st.text_input("Código do Envio", placeholder="Ex: FBM123456")
+            
+        c3, c4 = st.columns(2)
+        with c3:
+            data_envio = st.text_input("Data do Envio", value=datetime.now().strftime("%d/%m/%Y"))
+        with c4:
+            data_entrega = st.text_input("Data de Entrega", placeholder="Ex: 20/08/2026")
+
+        st.markdown("---")
+        
+        # ---------------------------------------------------------
+        # FORMULÁRIO: ADICIONAR ITENS (Dinâmico)
+        # ---------------------------------------------------------
+        st.subheader("➕ Adicionar Itens ao Envio")
+        
+        # Inicializando variáveis dos campos no session_state
+        for k in ["full_cod", "full_tam", "full_sku", "full_mlb", "full_peso", "full_custo"]:
+            if k not in st.session_state: st.session_state[k] = ""
+        if "full_qtd" not in st.session_state: st.session_state.full_qtd = 1
+        
+        # Função para puxar APENAS o Peso pelo SKU
+        def puxar_peso_sku_full():
+            sku_busca = st.session_state.get("full_sku", "").strip()
+            if sku_busca:
+                info_prod = buscar_produto_por_sku(sku_busca)
+                if info_prod is not None:
+                    st.session_state.full_peso = str(info_prod.get("Peso", ""))
+
+        # Função para calcular o Custo de Armazenagem de 30 dias baseado no Tamanho
+        def calcular_custo_armazenagem():
+            tamanho = st.session_state.get("full_tam", "")
+            custo_diario = 0.0
+            
+            if tamanho == "Pequeno": custo_diario = 0.007
+            elif tamanho == "Médio": custo_diario = 0.015
+            elif tamanho == "Grande": custo_diario = 0.050
+            elif tamanho == "Extragrande": custo_diario = 0.107
+            
+            if custo_diario > 0:
+                custo_30d = custo_diario * 30
+                st.session_state.full_custo = f"{custo_30d:.2f}".replace('.', ',')
+            else:
+                st.session_state.full_custo = ""
+
+        i1, i2, i3, i4 = st.columns([1.5, 1.5, 1.5, 1.5])
+        cod_full = i1.text_input("Cód. Full", key="full_cod")
+        
+        # Transformámos em Selectbox para garantir que o cálculo usa a tarifa exata do ML
+        opcoes_tam = ["", "Pequeno", "Médio", "Grande", "Extragrande"]
+        tamanho = i2.selectbox("Tamanho (ML)", opcoes_tam, key="full_tam", on_change=calcular_custo_armazenagem)
+        
+        # O on_change agora só busca o peso da base de dados
+        sku_item = i3.text_input("SKU", key="full_sku", on_change=puxar_peso_sku_full)
+        mlb_item = i4.text_input("MLB Anúncio", key="full_mlb")
+
+        i5, i6, i7 = st.columns(3)
+        qtd_item = i5.number_input("QTD", min_value=1, step=1, key="full_qtd")
+        
+        peso_un_str = i6.text_input("Peso (un) em kg", placeholder="Ex: 0,250", key="full_peso")
+        custo_un_str = i7.text_input("Custo Armaz. 30d (R$)", placeholder="Ex: 0,45", key="full_custo")
+
+        if st.button("Inserir Item na Lista"):
+            if sku_item.strip() and tamanho.strip():
+                peso_un = converter_valor(peso_un_str)
+                custo_un = converter_valor(custo_un_str)
+                
+                peso_total = qtd_item * peso_un
+                custo_total = qtd_item * custo_un
+
+                novo_item = {
+                    "Cód. Full": cod_full.strip(),
+                    "Tamanho": tamanho.strip(),
+                    "SKU": sku_item.strip(),
+                    "MLB Anúncio": mlb_item.strip(),
+                    "QTD": qtd_item,
+                    "Peso (un)": peso_un,
+                    "Custo (un)": custo_un,
+                    "Peso Total": peso_total,
+                    "Custo Total": custo_total
+                }
+                st.session_state.full_itens.append(novo_item)
+                
+                # Limpa os campos para o próximo item
+                for k in ["full_cod", "full_tam", "full_sku", "full_mlb", "full_peso", "full_custo"]:
+                    st.session_state[k] = ""
+                st.session_state.full_qtd = 1
+                
+                st.rerun()
+            else:
+                st.error("❌ Preencha pelo menos o Tamanho e o SKU do produto para o inserir.")
