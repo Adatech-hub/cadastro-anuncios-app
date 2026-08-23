@@ -649,29 +649,57 @@ if menu_selecionado == "Cadastro de Fornecedor":
 # MÓDULO 1: CADASTRO DE ANÚNCIOS
 # =====================================================================
 elif menu_selecionado == "Cadastro de Anúncios":
+    import json
     
+    # ==========================================================
+    # CACHE INTELIGENTE DOS ANÚNCIOS (Para a barra de pesquisa)
+    # ==========================================================
+    def limpar_cache_anuncios():
+        if "anuncios_opcoes" in st.session_state: del st.session_state["anuncios_opcoes"]
+        if "df_anuncios_cache" in st.session_state: del st.session_state["df_anuncios_cache"]
+
+    if "anuncios_opcoes" not in st.session_state:
+        st.session_state.anuncios_opcoes = [""]
+        st.session_state.df_anuncios_cache = pd.DataFrame()
+        try:
+            client = get_sheets_client()
+            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+            sheet_anuncios = doc.sheet1
+            df_a = pd.DataFrame(sheet_anuncios.get_all_records(value_render_option="UNFORMATTED_VALUE"))
+            st.session_state.df_anuncios_cache = df_a
+            
+            if not df_a.empty and "ID do Anúncio" in df_a.columns:
+                ops = [""]
+                for _, row in df_a.iterrows():
+                    c = str(row.get("ID do Anúncio", "")).strip()
+                    n = str(row.get("Título", "")).strip()
+                    if c: ops.append(f"{c} | {n}")
+                st.session_state.anuncios_opcoes = ops
+        except:
+            pass
+
     def carregar_repositorio():
         try:
             client = get_sheets_client()
             sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas"])
+            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo"])
             return pd.DataFrame(data)
-        except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas"])
+        except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo"])
 
     def salvar_no_repositorio(dados):
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
         
-        header = ["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas"]
-        if sheet.col_count < 19: sheet.add_cols(19 - sheet.col_count)
-        if sheet.row_values(1) != header: sheet.update(range_name='A1:S1', values=[header], value_input_option="USER_ENTERED")
+        header = ["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo"]
+        if sheet.col_count < 20: sheet.add_cols(20 - sheet.col_count)
+        if sheet.row_values(1) != header: sheet.update(range_name='A1:T1', values=[header], value_input_option="USER_ENTERED")
 
         df = carregar_repositorio()
         valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
         if not df.empty and "ID do Anúncio" in df.columns and dados["ID do Anúncio"] in df["ID do Anúncio"].values:
             idx = df[df["ID do Anúncio"] == dados["ID do Anúncio"]].index[0]
-            sheet.update(range_name=f'A{idx+2}:S{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+            sheet.update(range_name=f'A{idx+2}:T{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
         else: sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
 
     def processar_calculo_custo():
@@ -690,7 +718,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.fornecedor_produto = str(info_prod.get("Fornecedor", ""))
 
     def resetar_campos():
-        campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "medida", "peso", "fornecedor_produto"]
+        campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "link_catalogo", "medida", "peso", "fornecedor_produto"]
         for c in campos: st.session_state[c] = ""
         st.session_state.custo = "0,00"
         st.session_state.preco = "0,00"
@@ -702,6 +730,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
         st.session_state.tacos = 0.0
         st.session_state.imposto = 7.3  
         st.session_state.otimizacoes = ""
+        
+        if "pesquisa_anuncio" in st.session_state: del st.session_state["pesquisa_anuncio"]
         
         if "num_atacado" in st.session_state: st.session_state.num_atacado = 0
         for k in list(st.session_state.keys()):
@@ -721,6 +751,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
     if "nome_produto" not in st.session_state: st.session_state.nome_produto = ""
     if "sku" not in st.session_state: st.session_state.sku = ""
     if "link_anuncio" not in st.session_state: st.session_state.link_anuncio = ""
+    if "link_catalogo" not in st.session_state: st.session_state.link_catalogo = ""
     if "medida" not in st.session_state: st.session_state.medida = ""
     if "peso" not in st.session_state: st.session_state.peso = ""
     if "fornecedor_produto" not in st.session_state: st.session_state.fornecedor_produto = ""
@@ -738,6 +769,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.nome_produto = str(row.get("Produto", "")) if pd.notna(row.get("Produto")) else ""
                 st.session_state.titulo = str(row.get("Título", ""))
                 st.session_state.link_anuncio = str(row.get("Link do Anúncio", "")) if pd.notna(row.get("Link do Anúncio")) else ""
+                st.session_state.link_catalogo = str(row.get("Link do Catálogo", "")) if pd.notna(row.get("Link do Catálogo")) else ""
                 st.session_state.custo = formatar_moeda_ui(row.get("Custo", 0))
                 st.session_state.preco = formatar_moeda_ui(row.get("Preço Original", 0))
                 st.session_state.frete = formatar_moeda_ui(row.get("Frete", 0))
@@ -794,13 +826,17 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     "ACOS OBJ.": st.session_state.tacos,
                     "Imposto": st.session_state.imposto,
                     "Link": st.session_state.link_anuncio,
+                    "Link Catálogo": st.session_state.link_catalogo,
                     "Estratégias Atacado": atacado_json,
                     "Otimizações": st.session_state.otimizacoes
                 }
                 
+                # BUSCA EM TEMPO REAL NO CADASTRO DE PRODUTOS
                 if st.session_state.sku:
                     prod_mestre = buscar_produto_por_sku(st.session_state.sku)
                     if prod_mestre is not None:
+                        st.session_state.nome_produto = str(prod_mestre.get("Produto", ""))
+                        st.session_state.custo = formatar_moeda_ui(prod_mestre.get("Custo", 0))
                         st.session_state.medida = str(prod_mestre.get("Medida", ""))
                         st.session_state.peso = str(prod_mestre.get("Peso", ""))
                         st.session_state.fornecedor_produto = str(prod_mestre.get("Fornecedor", ""))
@@ -826,6 +862,19 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.rerun()
 
             st.markdown("---")
+            
+            # --- CAMPO DE PESQUISA INTELIGENTE ---
+            def on_change_pesquisa_anuncio():
+                val = st.session_state.get("pesquisa_anuncio", "")
+                if val and " | " in val:
+                    id_buscado = val.split(" | ")[0].strip()
+                    st.session_state.id_anuncio = id_buscado
+                    st.session_state.ultimo_id_carregado = "" # Força recarregamento
+
+            st.selectbox("🔍 Pesquisar Anúncio Salvo (MLB ou Título)", st.session_state.anuncios_opcoes, key="pesquisa_anuncio", on_change=on_change_pesquisa_anuncio)
+            st.markdown("<br>", unsafe_allow_html=True)
+            # -------------------------------------
+
             st.subheader("📢 Dados do Anúncio")
             col1, col2, col3 = st.columns([1.5, 3, 1.5])
             with col1: id_input = st.text_input("ID do Anúncio (MLB)", placeholder="Ex: MLB123456789", key="id_anuncio")
@@ -836,6 +885,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     else: st.caption(f"Caracteres: {len(titulo_anuncio)}/60") 
             with col3: st.text_input("Última Atualização", value=st.session_state.ultima_atualizacao, disabled=True)
             
+            # --- LINKS DO ANÚNCIO E DO CATÁLOGO ---
             c_link1, c_link2 = st.columns([4, 1])
             with c_link1:
                 link_anuncio_input = st.text_input("🔗 Link do Anúncio", placeholder="Ex: https://produto.mercadolivre.com.br/MLB-...", key="link_anuncio")
@@ -845,9 +895,35 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 if link_atual.startswith("http"):
                     st.markdown(f'''
                         <a href="{link_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">
-                            Acessar 🔗
+                            Acessar Anúncio 🔗
                         </a>
                     ''', unsafe_allow_html=True)
+                else:
+                    st.markdown('''
+                        <div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">
+                            Acessar Anúncio 🔗
+                        </div>
+                    ''', unsafe_allow_html=True)
+                    
+            c_cat1, c_cat2 = st.columns([4, 1])
+            with c_cat1:
+                link_catalogo_input = st.text_input("🔗 Link do Catálogo", placeholder="Ex: https://produto.mercadolivre.com.br/MLB-...-catalogo", key="link_catalogo")
+            with c_cat2:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                link_cat_atual = st.session_state.get("link_catalogo", "").strip()
+                if link_cat_atual.startswith("http"):
+                    st.markdown(f'''
+                        <a href="{link_cat_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">
+                            Acessar Catálogo 🔗
+                        </a>
+                    ''', unsafe_allow_html=True)
+                else:
+                    st.markdown('''
+                        <div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">
+                            Acessar Catálogo 🔗
+                        </div>
+                    ''', unsafe_allow_html=True)
+            # ----------------------------------------
 
             if st.session_state.get("mostrar_sucesso") and id_input == st.session_state.get("ultimo_id_carregado"):
                 st.info("ℹ️ Dados recuperados da nuvem.")
@@ -1037,7 +1113,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
             otimizacoes_texto = st.text_area("Observações e testes aplicados no anúncio:", key="otimizacoes", height=100)
 
             # ==========================================================
-            # NOVA SEÇÃO: AGENDAMENTO DE TAREFAS
+            # SEÇÃO: AGENDAMENTO DE TAREFAS
             # ==========================================================
             st.markdown("---")
             st.subheader("📅 Agendamento de Tarefas")
@@ -1055,8 +1131,9 @@ elif menu_selecionado == "Cadastro de Anúncios":
                             "vencimento": nova_data_tarefa.strip(),
                             "status": "Pendente"
                         })
-                        st.session_state.nova_desc_tarefa = ""
-                        st.session_state.nova_data_tarefa = ""
+                        
+                        if "nova_desc_tarefa" in st.session_state: del st.session_state["nova_desc_tarefa"]
+                        if "nova_data_tarefa" in st.session_state: del st.session_state["nova_data_tarefa"]
                         st.rerun()
                     else:
                         st.warning("Preencha a descrição da tarefa.")
@@ -1138,6 +1215,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         "ACOS OBJ.": porcentagem_tacos,
                         "Imposto": imposto_porcentagem,
                         "Link": link_anuncio_input,
+                        "Link Catálogo": link_catalogo_input,
                         "Estratégias Atacado": estrategias_json
                     }
                     
@@ -1160,7 +1238,6 @@ elif menu_selecionado == "Cadastro de Anúncios":
                                     mudancas.append(f"{k} (de {fmt_val(v_orig)} para {fmt_val(v)})")
                                     
                             elif k == "Estratégias Atacado":
-                                # Validação inteligente de JSON para ignorar diferenças de texto vazio ("") vs array vazio ("[]")
                                 try:
                                     j_v = json.loads(str(v)) if str(v).strip() else []
                                     j_orig = json.loads(str(v_orig)) if str(v_orig).strip() else []
@@ -1203,7 +1280,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         "Estrategias_Atacado": estrategias_json,
                         "Historico_Alteracoes": historico_json,
                         "Otimizacoes": otimizacoes_texto,
-                        "Tarefas Agendadas": tarefas_json
+                        "Tarefas Agendadas": tarefas_json,
+                        "Link do Catálogo": link_catalogo_input
                     }
                     
                     try:
@@ -1215,12 +1293,13 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         estado_novo["Otimizações"] = otimizacoes_texto
                         st.session_state.estado_original_anuncio = estado_novo
                         
+                        limpar_cache_anuncios() # Atualiza o cache da pesquisa após salvar
                         st.rerun()
                     except Exception as e: st.error(f"❌ Erro ao salvar na planilha: {e}")
                 else: st.error(f"❌ Erro ao salvar: Preencha os campos obrigatórios: {', '.join(faltantes)}")
 
         # ==========================================================
-        # NOVA ABA: TAREFAS PENDENTES
+        # ABA: TAREFAS PENDENTES E ALERTAS
         # ==========================================================
         with tab_tarefas:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -1286,6 +1365,15 @@ elif menu_selecionado == "Cadastro de Anúncios":
             st.markdown("#### 📅 Tarefas Manuais Agendadas")
             if tarefas_manuais:
                 df_manuais = pd.DataFrame(tarefas_manuais)
+                
+                # --- LÓGICA DE ORDENAÇÃO POR DATA DE VENCIMENTO ---
+                # 1. Cria uma coluna temporária transformando o texto em formato de Data real do Python
+                df_manuais['Data_Sort'] = pd.to_datetime(df_manuais['Vencimento'], format='%d/%m/%Y', errors='coerce')
+                
+                # 2. Ordena a tabela pela data mais próxima e remove a coluna temporária
+                df_manuais = df_manuais.sort_values(by='Data_Sort', ascending=True).drop(columns=['Data_Sort'])
+                # --------------------------------------------------
+                
                 st.dataframe(
                     df_manuais.style.set_properties(**{
                         'background-color': '#F4F6F9',
@@ -2836,55 +2924,75 @@ elif menu_selecionado == "Calculadora Simples":
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
         st.title("🧮 Calculadora Simples")
-        st.markdown("Faça simulações rápidas de preços, custos e margens sem precisar cadastrar um anúncio.")
+        st.markdown("Faça simulações rápidas para descobrir o **Preço de Venda ideal** com base na margem de lucro que deseja obter.")
         
         st.markdown("---")
         st.subheader("💸 Dados da Venda")
         
-        col_custo, col_preco, col_desc, col_final = st.columns(4)
+        # O campo de Venda Real foi removido daqui e substituído pela Margem
+        col_custo, col_margem, col_desc = st.columns(3)
         with col_custo: custo_produto_str = st.text_input("Custo do Produto (R$)", value="0,00", key="custo_prod_calc")
-        with col_preco: preco_original_str = st.text_input("Preço Original (R$)", value="0,00", key="preco_orig_calc")
-        with col_desc: porcentagem_desconto = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key="desc_calc")
+        with col_margem: margem_desejada = st.number_input("Margem de Lucro Desejada (%)", min_value=0.0, max_value=99.9, value=20.0, step=0.1, key="margem_calc")
+        with col_desc: porcentagem_desconto = st.number_input("Desconto de Campanha (%)", min_value=0.0, max_value=99.9, step=0.1, key="desc_calc")
         
-        custo_produto = converter_valor(custo_produto_str)
-        preco_original = converter_valor(preco_original_str)
-        preco_final = preco_original * (1 - (porcentagem_desconto / 100))
-        
-        with col_final: st.text_input("Venda Real (R$)", value=f"{preco_final:.2f}".replace('.', ','), disabled=True, key="venda_real_calc")
-
         col_comissao, col_frete, col_taxa = st.columns(3)
         with col_comissao: comissao_mkt_porcentagem = st.number_input("Comissão Marketplace (%)", min_value=0.0, step=0.1, key="com_calc")
         with col_frete: custo_frete_str = st.text_input("Custo de Frete (R$)", value="0,00", key="frete_calc")
-        with col_taxa: taxa_fixa_venda_str = st.text_input("Custo Full (R$)", value="0,00", key="taxa_calc")
+        with col_taxa: taxa_fixa_venda_str = st.text_input("Custo Full / Fixo (R$)", value="0,00", key="taxa_calc")
 
         col_estorno, col_tacos, col_imposto = st.columns(3)
         with col_estorno: estorno_ml_str = st.text_input("Estorno/Bonificação ML (R$)", value="0,00", key="estorno_calc")
         with col_tacos: porcentagem_tacos = st.number_input("Custo de Publicidade ACOS OBJ. (%)", min_value=0.0, max_value=100.0, step=0.1, key="tacos_calc")
         with col_imposto: imposto_porcentagem = st.number_input("Imposto sobre NF (%)", min_value=0.0, value=7.3, step=0.1, key="imposto_calc")
 
+        custo_produto = converter_valor(custo_produto_str)
         custo_frete = converter_valor(custo_frete_str)
         taxa_fixa_venda = converter_valor(taxa_fixa_venda_str)
         estorno_ml = converter_valor(estorno_ml_str)
 
-        valor_comissao = preco_final * (comissao_mkt_porcentagem / 100)
-        valor_imposto = preco_final * (imposto_porcentagem / 100)
-        valor_tacos = preco_final * (porcentagem_tacos / 100)
+        # --- LÓGICA DE PRECIFICAÇÃO REVERSA (MARKUP) ---
+        custos_fixos = custo_produto + custo_frete + taxa_fixa_venda - estorno_ml
+        percentuais_variaveis = (comissao_mkt_porcentagem + imposto_porcentagem + porcentagem_tacos + margem_desejada) / 100.0
 
-        custo_total_saidas = custo_produto + custo_frete + valor_comissao + valor_imposto + taxa_fixa_venda + valor_tacos
-        lucro_liquido = (preco_final + estorno_ml) - custo_total_saidas
-        margem_contribuicao = arredondar_customizado((lucro_liquido / preco_final) * 100) if preco_final > 0 else 0.0
+        preco_final = 0.0
+        preco_original = 0.0
+        lucro_liquido = 0.0
+        custo_total_saidas = 0.0
+        valor_comissao = 0.0
+        valor_imposto = 0.0
+        valor_tacos = 0.0
+
+        # Bloqueio matemático: se os custos variáveis e a margem passarem de 100%, é impossível calcular
+        if percentuais_variaveis >= 1.0:
+            st.error("⚠️ A soma das porcentagens (Margem, Comissão, Imposto, TACOS) é igual ou maior que 100%. É matematicamente impossível definir um preço com estes parâmetros.")
+        else:
+            preco_final = custos_fixos / (1 - percentuais_variaveis)
+            
+            if preco_final < 0:
+                preco_final = 0.0
+                
+            # Se houver desconto de campanha, o preço original tem de ser inflacionado
+            if porcentagem_desconto > 0:
+                preco_original = preco_final / (1 - (porcentagem_desconto / 100.0))
+            else:
+                preco_original = preco_final
+
+            valor_comissao = preco_final * (comissao_mkt_porcentagem / 100)
+            valor_imposto = preco_final * (imposto_porcentagem / 100)
+            valor_tacos = preco_final * (porcentagem_tacos / 100)
+
+            custo_total_saidas = custo_produto + custo_frete + valor_comissao + valor_imposto + taxa_fixa_venda + valor_tacos
+            lucro_liquido = (preco_final + estorno_ml) - custo_total_saidas
 
         st.divider()
         st.subheader("📈 Resultados")
 
-        col_res_custo, col_res_lucro, col_res_margem = st.columns(3)
-        with col_res_custo: st.metric("Custo Total", f"R$ {custo_total_saidas:.2f}".replace('.', ','))
+        # Exibição dos resultados com a nova ordem
+        col_res_orig, col_res_venda, col_res_lucro, col_res_custo = st.columns(4)
+        with col_res_orig: st.metric("Preço Original (Sem desc.)", f"R$ {preco_original:.2f}".replace('.', ','))
+        with col_res_venda: st.metric("Preço de Venda Real", f"R$ {preco_final:.2f}".replace('.', ','))
         with col_res_lucro: st.metric("Lucro Líquido", f"R$ {lucro_liquido:.2f}".replace('.', ','))
-        with col_res_margem: st.metric("Margem", f"{margem_contribuicao:.2f}%".replace('.', ','))
-
-        if margem_contribuicao < 15: st.error("⚠️ Margem baixa! Verifique o desconto ou os custos.")
-        elif 15 <= margem_contribuicao <= 25: st.warning("⚖️ Margem aceitável para giro.")
-        else: st.success("✅ Margem excelente para o seu produto!")
+        with col_res_custo: st.metric("Custo Total", f"R$ {custo_total_saidas:.2f}".replace('.', ','))
 
         st.write("### Detalhamento Financeiro")
         denominador = preco_final if preco_final > 0 else 1.0
@@ -2916,7 +3024,6 @@ elif menu_selecionado == "Calculadora Simples":
         html_table += "</table>"
         
         st.markdown(html_table, unsafe_allow_html=True)
-
 # =====================================================================
 # MÓDULO 8: CHATBOT
 # =====================================================================
@@ -3011,112 +3118,565 @@ elif menu_selecionado == "ChatBot":
 # MÓDULO 9: FULFILLMENT
 # =====================================================================
 elif menu_selecionado == "Fulfillment":
+    import json
+    import math
+    from datetime import timedelta
     
-    # Inicializa a lista de itens do envio atual na memória
-    if "full_itens" not in st.session_state:
-        st.session_state.full_itens = []
+    # Inicializa a lista de itens do envio atual e do estoque na memória
+    if "full_itens" not in st.session_state: st.session_state.full_itens = []
+    if "estoque_itens" not in st.session_state: st.session_state.estoque_itens = []
+
+    # Inicializa variáveis base
+    for k in ["est_cod", "est_sku", "est_mlb", "est_nome", "est_peso", "est_tam", "est_custo_diario"]:
+        if k not in st.session_state: st.session_state[k] = ""
+    if "sugestao_msg" not in st.session_state: st.session_state.sugestao_msg = ""
+    
+    # Inicializa variáveis do cabeçalho de envio
+    if "nome_envio_input" not in st.session_state: st.session_state.nome_envio_input = ""
+    if "codigo_envio_input" not in st.session_state: st.session_state.codigo_envio_input = ""
+
+    # ==========================================================
+    # CACHE INTELIGENTE DO ESTOQUE
+    # ==========================================================
+    def limpar_cache_estoque():
+        if "estoque_opcoes" in st.session_state: del st.session_state["estoque_opcoes"]
+        if "df_estoque_cache" in st.session_state: del st.session_state["df_estoque_cache"]
+
+    if "estoque_opcoes" not in st.session_state:
+        st.session_state.estoque_opcoes = [""]
+        st.session_state.df_estoque_cache = pd.DataFrame()
+        try:
+            client = get_sheets_client()
+            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+            sheet_est = doc.worksheet("Estoque Full")
+            df_e = pd.DataFrame(sheet_est.get_all_records())
+            st.session_state.df_estoque_cache = df_e
+            if not df_e.empty and "Código do Full" in df_e.columns:
+                ops = [""]
+                for _, row in df_e.iterrows():
+                    c = str(row.get("Código do Full", "")).strip()
+                    n = str(row.get("Produto", "")).strip()
+                    if c: ops.append(f"{c} | {n}")
+                st.session_state.estoque_opcoes = ops
+        except:
+            pass
 
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
         st.title("📦 Fulfillment")
-        st.markdown("Crie e faça a gestão dos seus envios de stock para o centro de distribuição (Full).")
+        st.markdown("Faça a gestão do seu inventário no centro de distribuição (Full) e crie novos envios.")
 
-        # ---------------------------------------------------------
-        # CABEÇALHO: DADOS DO ENVIO
-        # ---------------------------------------------------------
-        st.subheader("Dados do Envio")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            nome_envio = st.text_input("Nome do Envio", placeholder="Ex: Envio 15 - Ago/26")
-        with c2:
-            codigo_envio = st.text_input("Código do Envio", placeholder="Ex: FBM123456")
-            
-        c3, c4 = st.columns(2)
-        with c3:
-            data_envio = st.text_input("Data do Envio", value=datetime.now().strftime("%d/%m/%Y"))
-        with c4:
-            data_entrega = st.text_input("Data de Entrega", placeholder="Ex: 20/08/2026")
+        tab_envios, tab_estoque, tab_consulta = st.tabs(["📦 Gestão de Envios", "🏭 Cadastro no Estoque", "📊 Consulta de Estoque"])
 
-        st.markdown("---")
-        
-        # ---------------------------------------------------------
-        # FORMULÁRIO: ADICIONAR ITENS (Dinâmico)
-        # ---------------------------------------------------------
-        st.subheader("➕ Adicionar Itens ao Envio")
-        
-        # Inicializando variáveis dos campos no session_state
-        for k in ["full_cod", "full_tam", "full_sku", "full_mlb", "full_peso", "full_custo"]:
-            if k not in st.session_state: st.session_state[k] = ""
-        if "full_qtd" not in st.session_state: st.session_state.full_qtd = 1
-        
-        # Função para puxar APENAS o Peso pelo SKU
-        def puxar_peso_sku_full():
-            sku_busca = st.session_state.get("full_sku", "").strip()
-            if sku_busca:
-                info_prod = buscar_produto_por_sku(sku_busca)
-                if info_prod is not None:
-                    st.session_state.full_peso = str(info_prod.get("Peso", ""))
+        # ==========================================================
+        # ABA 1: GESTÃO DE ENVIOS
+        # ==========================================================
+        with tab_envios:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("Dados do Envio")
+            
+            # Função para carregar um envio existente para edição
+            def carregar_dados_envio():
+                nome_busca = st.session_state.get("nome_envio_input", "").strip()
+                if nome_busca:
+                    try:
+                        client = get_sheets_client()
+                        doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                        sheet_env = doc.worksheet("Fulfillment")
+                        df_env = pd.DataFrame(sheet_env.get_all_records())
+                        
+                        if not df_env.empty and "Nome do Envio" in df_env.columns:
+                            df_env["Nome_Match"] = df_env["Nome do Envio"].astype(str).str.strip()
+                            row = df_env[df_env["Nome_Match"] == nome_busca]
+                            
+                            if not row.empty:
+                                item = row.iloc[0]
+                                st.session_state.codigo_envio_input = str(item.get("Código do Envio", ""))
+                                
+                                d_env_str = str(item.get("Data do Envio", ""))
+                                try:
+                                    st.session_state.data_envio_input = datetime.strptime(d_env_str, "%d/%m/%Y").date()
+                                except: pass
+                                
+                                json_str = str(item.get("Detalhes dos Itens (JSON)", "[]"))
+                                if json_str and json_str != "nan":
+                                    st.session_state.full_itens = json.loads(json_str)
+                                else:
+                                    st.session_state.full_itens = []
+                    except: pass
 
-        # Função para calcular o Custo de Armazenagem de 30 dias baseado no Tamanho
-        def calcular_custo_armazenagem():
-            tamanho = st.session_state.get("full_tam", "")
-            custo_diario = 0.0
+            c1, c2 = st.columns(2)
+            with c1: 
+                st.text_input("Nome do Envio", placeholder="Ex: Envio 15 - Ago/26", key="nome_envio_input", on_change=carregar_dados_envio)
+            with c2: 
+                st.text_input("Código do Envio", placeholder="Ex: FBM123456", key="codigo_envio_input")
+                
+            c3, c4 = st.columns(2)
+            with c3: 
+                if "data_envio_input" not in st.session_state: st.session_state.data_envio_input = datetime.now().date()
+                data_envio = st.date_input("Data do Envio", key="data_envio_input", format="DD/MM/YYYY")
+            with c4: 
+                data_entrega = data_envio + timedelta(days=7)
+                st.text_input("Data de Entrega", value=data_entrega.strftime("%d/%m/%Y"), disabled=True)
+
+            st.markdown("---")
             
-            if tamanho == "Pequeno": custo_diario = 0.007
-            elif tamanho == "Médio": custo_diario = 0.015
-            elif tamanho == "Grande": custo_diario = 0.050
-            elif tamanho == "Extragrande": custo_diario = 0.107
+            st.subheader("➕ Adicionar Itens ao Envio")
             
-            if custo_diario > 0:
-                custo_30d = custo_diario * 30
-                st.session_state.full_custo = f"{custo_30d:.2f}".replace('.', ',')
+            for k in ["full_cod", "full_tam", "full_sku", "full_mlb", "full_peso", "full_custo"]:
+                if k not in st.session_state: st.session_state[k] = ""
+            if "full_qtd" not in st.session_state: st.session_state.full_qtd = 1
+            
+            def puxar_dados_cod_full():
+                cod_busca = st.session_state.get("full_cod", "").strip()
+                if cod_busca:
+                    df_est = st.session_state.get("df_estoque_cache", pd.DataFrame())
+                    if not df_est.empty and "Código do Full" in df_est.columns:
+                        df_est["Cod_Match"] = df_est["Código do Full"].astype(str).str.strip()
+                        row = df_est[df_est["Cod_Match"] == cod_busca]
+                        
+                        if not row.empty:
+                            item = row.iloc[0]
+                            st.session_state.full_tam = str(item.get("Tamanho", ""))
+                            st.session_state.full_sku = str(item.get("SKU", ""))
+                            st.session_state.full_mlb = str(item.get("MLB Anúncio", ""))
+                            
+                            peso_val = item.get("Peso", "")
+                            if peso_val != "": st.session_state.full_peso = f"{peso_val}".replace('.', ',')
+                            
+                            custo_diario = item.get("Custo Diário", "")
+                            try:
+                                if custo_diario != "":
+                                    c_dia = float(str(custo_diario).replace(',', '.'))
+                                    st.session_state.full_custo = f"{c_dia * 30:.2f}".replace('.', ',')
+                            except:
+                                st.session_state.full_custo = ""
+
+                            estoque_atual = int(item.get("Estoque Atual", 0))
+                            vendas_30d = int(item.get("Vendas (30 dias)", 0))
+                            
+                            d_env = st.session_state.get("data_envio_input", datetime.now().date())
+                            d_ent = d_env + timedelta(days=7)
+                            hoje = datetime.now().date()
+                            
+                            dias_ate_chegada = (d_ent - hoje).days
+                            if dias_ate_chegada < 0: dias_ate_chegada = 0
+                            
+                            venda_diaria = vendas_30d / 30.0
+                            estoque_na_chegada = estoque_atual - (venda_diaria * dias_ate_chegada)
+                            if estoque_na_chegada < 0: estoque_na_chegada = 0
+                            
+                            necessidade_30d = venda_diaria * 30.0
+                            sugestao = necessidade_30d - estoque_na_chegada
+                            
+                            qtd_sugerida = math.ceil(sugestao)
+                            if qtd_sugerida < 0: qtd_sugerida = 0
+                            
+                            st.session_state.full_qtd = qtd_sugerida
+                            st.session_state.sugestao_msg = f"💡 **Sugestão Inteligente:** Velocidade de **{venda_diaria:.1f}** vendas/dia. Na data de entrega ({d_ent.strftime('%d/%m')}), o seu stock estimado será de **{estoque_na_chegada:.0f}** peças. Para cobrir os 30 dias seguintes (necessidade de **{necessidade_30d:.0f}** peças), a quantidade sugerida de reposição é **{qtd_sugerida}**."
+
+            def on_change_pesquisa():
+                val = st.session_state.get("pesquisa_item_envio", "")
+                if val and " | " in val:
+                    st.session_state.full_cod = val.split(" | ")[0].strip()
+                    puxar_dados_cod_full()
+
+            def puxar_peso_sku_full():
+                sku_busca = st.session_state.get("full_sku", "").strip()
+                if sku_busca:
+                    info_prod = buscar_produto_por_sku(sku_busca)
+                    if info_prod is not None:
+                        st.session_state.full_peso = str(info_prod.get("Peso", ""))
+
+            def calcular_custo_armazenagem():
+                tamanho = st.session_state.get("full_tam", "")
+                custo_diario = 0.0
+                if tamanho == "Pequeno": custo_diario = 0.007
+                elif tamanho == "Médio": custo_diario = 0.015
+                elif tamanho == "Grande": custo_diario = 0.050
+                elif tamanho == "Extragrande": custo_diario = 0.107
+                
+                if custo_diario > 0:
+                    custo_30d = custo_diario * 30
+                    st.session_state.full_custo = f"{custo_30d:.2f}".replace('.', ',')
+                else:
+                    st.session_state.full_custo = ""
+
+            st.selectbox("🔍 Pesquisar Produto no Estoque (Cód. Full ou Nome)", st.session_state.estoque_opcoes, key="pesquisa_item_envio", on_change=on_change_pesquisa)
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            i1, i2, i3, i4 = st.columns([1.5, 1.5, 1.5, 1.5])
+            cod_full = i1.text_input("Cód. Full", key="full_cod", on_change=puxar_dados_cod_full)
+            
+            opcoes_tam = ["", "Pequeno", "Médio", "Grande", "Extragrande"]
+            tamanho = i2.selectbox("Tamanho (ML)", opcoes_tam, key="full_tam", on_change=calcular_custo_armazenagem)
+            
+            sku_item = i3.text_input("SKU", key="full_sku", on_change=puxar_peso_sku_full)
+            mlb_item = i4.text_input("MLB Anúncio", key="full_mlb")
+
+            i5, i6, i7 = st.columns(3)
+            qtd_item = i5.number_input("QTD", min_value=0, step=1, key="full_qtd")
+            peso_un_str = i6.text_input("Peso (un) em kg", placeholder="Ex: 0,250", key="full_peso")
+            custo_un_str = i7.text_input("Custo Armaz. 30d (R$)", placeholder="Ex: 0,45", key="full_custo")
+
+            if st.session_state.get("sugestao_msg"):
+                st.info(st.session_state.sugestao_msg)
+
+            if st.button("Inserir Item no Envio"):
+                if sku_item.strip() and tamanho.strip() and qtd_item > 0:
+                    peso_un = converter_valor(peso_un_str)
+                    custo_un = converter_valor(custo_un_str)
+                    
+                    peso_total = qtd_item * peso_un
+                    custo_total = qtd_item * custo_un
+
+                    novo_item = {
+                        "Cód. Full": cod_full.strip(),
+                        "Tamanho": tamanho.strip(),
+                        "SKU": sku_item.strip(),
+                        "MLB Anúncio": mlb_item.strip(),
+                        "QTD": qtd_item,
+                        "Peso (un)": peso_un,
+                        "Custo (un)": custo_un,
+                        "Peso Total": peso_total,
+                        "Custo Total": custo_total
+                    }
+                    st.session_state.full_itens.append(novo_item)
+                    
+                    for k in ["full_cod", "full_tam", "full_sku", "full_mlb", "full_peso", "full_custo", "pesquisa_item_envio"]:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.session_state.full_qtd = 1
+                    st.session_state.sugestao_msg = ""
+                    
+                    st.rerun()
+                elif qtd_item <= 0:
+                    st.error("❌ A quantidade a enviar (QTD) tem de ser maior do que zero.")
+                else:
+                    st.error("❌ Preencha pelo menos o Tamanho e o SKU do produto para o inserir.")
+
+            st.markdown("---")
+            st.subheader("📋 Resumo dos Itens do Envio")
+
+            if st.session_state.full_itens:
+                df_itens = pd.DataFrame(st.session_state.full_itens)
+
+                df_display = df_itens.copy()
+                df_display["Peso (un)"] = df_display["Peso (un)"].apply(lambda x: f"{x:.3f} kg".replace('.', ','))
+                df_display["Custo (un)"] = df_display["Custo (un)"].apply(lambda x: f"R$ {x:.2f}".replace('.', ','))
+                df_display["Peso Total"] = df_display["Peso Total"].apply(lambda x: f"{x:.3f} kg".replace('.', ','))
+                df_display["Custo Total"] = df_display["Custo Total"].apply(lambda x: f"R$ {x:.2f}".replace('.', ','))
+
+                st.dataframe(
+                    df_display.style.set_properties(**{
+                        'background-color': '#F4F6F9',
+                        'color': '#1E1E1E',
+                        'border-color': '#E5E7EB',
+                        'text-align': 'center'
+                    }),
+                    use_container_width=True,
+                    hide_index=True 
+                )
+
+                total_qtd = int(df_itens["QTD"].sum())
+                total_peso = float(df_itens["Peso Total"].sum())
+                total_custo = float(df_itens["Custo Total"].sum())
+
+                st.markdown("<br>", unsafe_allow_html=True)
+                t1, t2, t3 = st.columns(3)
+                t1.metric("Quantidade Total (Peças)", total_qtd)
+                t2.metric("Peso Total do Envio", f"{total_peso:.3f} kg".replace('.', ','))
+                t3.metric("Custo Total do Envio", f"R$ {total_custo:.2f}".replace('.', ','))
+
             else:
-                st.session_state.full_custo = ""
+                st.info("Nenhum item adicionado a este envio ainda. Pesquise um produto acima para começar a construir o seu lote.")
+                total_qtd = 0
+                total_peso = 0.0
+                total_custo = 0.0
 
-        i1, i2, i3, i4 = st.columns([1.5, 1.5, 1.5, 1.5])
-        cod_full = i1.text_input("Cód. Full", key="full_cod")
-        
-        # Transformámos em Selectbox para garantir que o cálculo usa a tarifa exata do ML
-        opcoes_tam = ["", "Pequeno", "Médio", "Grande", "Extragrande"]
-        tamanho = i2.selectbox("Tamanho (ML)", opcoes_tam, key="full_tam", on_change=calcular_custo_armazenagem)
-        
-        # O on_change agora só busca o peso da base de dados
-        sku_item = i3.text_input("SKU", key="full_sku", on_change=puxar_peso_sku_full)
-        mlb_item = i4.text_input("MLB Anúncio", key="full_mlb")
-
-        i5, i6, i7 = st.columns(3)
-        qtd_item = i5.number_input("QTD", min_value=1, step=1, key="full_qtd")
-        
-        peso_un_str = i6.text_input("Peso (un) em kg", placeholder="Ex: 0,250", key="full_peso")
-        custo_un_str = i7.text_input("Custo Armaz. 30d (R$)", placeholder="Ex: 0,45", key="full_custo")
-
-        if st.button("Inserir Item na Lista"):
-            if sku_item.strip() and tamanho.strip():
-                peso_un = converter_valor(peso_un_str)
-                custo_un = converter_valor(custo_un_str)
+            st.markdown("<br>", unsafe_allow_html=True)
+            c_btn1, c_btn2, c_vazia = st.columns([3, 2, 5])
+            
+            with c_btn2:
+                if st.button("🗑️ Limpar Lista de Itens do Envio"):
+                    st.session_state.full_itens = []
+                    st.rerun()
+                    
+            with c_btn1:
+                if st.button("💾 Salvar Envio na Nuvem"):
+                    n_envio_salvar = st.session_state.get("nome_envio_input", "").strip()
+                    c_envio_salvar = st.session_state.get("codigo_envio_input", "").strip()
+                    
+                    if not st.session_state.full_itens:
+                        st.warning("⚠️ Adicione pelo menos um item na lista antes de salvar o envio.")
+                    elif n_envio_salvar and c_envio_salvar:
+                        try:
+                            client = get_sheets_client()
+                            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                            
+                            try:
+                                sheet = doc.worksheet("Fulfillment")
+                            except:
+                                sheet = doc.add_worksheet(title="Fulfillment", rows="1000", cols="8")
+                                sheet.append_row(["Nome do Envio", "Código do Envio", "Data do Envio", "Data de Entrega", "Quantidade Total", "Peso Total (kg)", "Custo Total (R$)", "Detalhes dos Itens (JSON)"])
+                            
+                            itens_json = json.dumps(st.session_state.full_itens)
+                            
+                            valores = [
+                                n_envio_salvar,
+                                c_envio_salvar,
+                                data_envio.strftime("%d/%m/%Y"),
+                                data_entrega.strftime("%d/%m/%Y"),
+                                total_qtd,
+                                f"{total_peso:.3f}".replace('.', ','),
+                                f"{total_custo:.2f}".replace('.', ','),
+                                itens_json
+                            ]
+                            
+                            # Verifica se o envio já existe para atualizar, senão insere nova linha
+                            df_banco = pd.DataFrame(sheet.get_all_records())
+                            envios_existentes = []
+                            if not df_banco.empty and "Nome do Envio" in df_banco.columns:
+                                envios_existentes = df_banco["Nome do Envio"].astype(str).str.strip().tolist()
+                                
+                            if n_envio_salvar in envios_existentes:
+                                idx = envios_existentes.index(n_envio_salvar)
+                                sheet.update(range_name=f'A{idx+2}:H{idx+2}', values=[valores], value_input_option="USER_ENTERED")
+                                st.success(f"✅ Envio '{n_envio_salvar}' atualizado com sucesso!")
+                            else:
+                                sheet.append_row(valores, value_input_option="USER_ENTERED")
+                                st.success(f"✅ Novo envio '{n_envio_salvar}' salvo com sucesso!")
+                            
+                            # Limpa os campos após salvar
+                            st.session_state.full_itens = []
+                            for k in ["nome_envio_input", "codigo_envio_input"]:
+                                if k in st.session_state: del st.session_state[k]
+                            
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"❌ Erro ao salvar envio: {e}")
+                    else:
+                        st.error("❌ Preencha o Nome e o Código do Envio (no topo da página) antes de salvar.")
+                        
+            # --- LISTAGEM DE PRÓXIMOS ENVIOS ---
+            st.markdown("---")
+            st.subheader("🗓️ Histórico e Próximos Envios")
+            try:
+                client = get_sheets_client()
+                doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                sheet_historico = doc.worksheet("Fulfillment")
+                df_historico = pd.DataFrame(sheet_historico.get_all_records())
                 
-                peso_total = qtd_item * peso_un
-                custo_total = qtd_item * custo_un
+                if not df_historico.empty:
+                    # Mostrar apenas as colunas amigáveis ao utilizador (sem o JSON)
+                    colunas_mostrar = ["Nome do Envio", "Código do Envio", "Data do Envio", "Data de Entrega", "Quantidade Total", "Peso Total (kg)", "Custo Total (R$)"]
+                    df_historico_mostrar = df_historico[colunas_mostrar].copy()
+                    
+                    st.dataframe(
+                        df_historico_mostrar.style.set_properties(**{
+                            'background-color': '#FFFFFF',
+                            'color': '#1E1E1E',
+                            'border-color': '#E5E7EB'
+                        }),
+                        use_container_width=True,
+                        hide_index=True 
+                    )
+                else:
+                    st.info("Nenhum envio registado na nuvem.")
+            except:
+                st.info("A base de envios ainda não possui dados. Salve o seu primeiro envio acima!")
 
-                novo_item = {
-                    "Cód. Full": cod_full.strip(),
-                    "Tamanho": tamanho.strip(),
-                    "SKU": sku_item.strip(),
-                    "MLB Anúncio": mlb_item.strip(),
-                    "QTD": qtd_item,
-                    "Peso (un)": peso_un,
-                    "Custo (un)": custo_un,
-                    "Peso Total": peso_total,
-                    "Custo Total": custo_total
-                }
-                st.session_state.full_itens.append(novo_item)
+        # ==========================================================
+        # ABA 2: ESTOQUE FULL (CADASTRO)
+        # ==========================================================
+        with tab_estoque:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("🏭 Cadastro de Produto no Estoque Full")
+            st.markdown("Adicione os seus produtos à lista de inventário abaixo e grave todos de uma vez.")
+            
+            def puxar_dados_sku_estoque():
+                sku_busca = st.session_state.get("est_sku", "").strip()
+                if sku_busca:
+                    info_prod = buscar_produto_por_sku(sku_busca)
+                    if info_prod is not None:
+                        st.session_state.est_nome = str(info_prod.get("Produto", ""))
+                        st.session_state.est_peso = str(info_prod.get("Peso", ""))
+
+            def calcular_custo_diario_estoque():
+                tamanho = st.session_state.get("est_tam", "")
+                custo_diario = 0.0
+                if tamanho == "Pequeno": custo_diario = 0.007
+                elif tamanho == "Médio": custo_diario = 0.015
+                elif tamanho == "Grande": custo_diario = 0.050
+                elif tamanho == "Extragrande": custo_diario = 0.107
                 
-                # Limpa os campos para o próximo item
-                for k in ["full_cod", "full_tam", "full_sku", "full_mlb", "full_peso", "full_custo"]:
-                    st.session_state[k] = ""
-                st.session_state.full_qtd = 1
+                if custo_diario > 0:
+                    st.session_state.est_custo_diario = f"{custo_diario:.3f}".replace('.', ',')
+                else:
+                    st.session_state.est_custo_diario = ""
+            
+            c_est1, c_est2, c_est_mlb = st.columns([1.5, 1.5, 1.5])
+            with c_est1: cod_full_est = st.text_input("Código do Full", key="est_cod", placeholder="Ex: AELM32649")
+            with c_est2: sku_est = st.text_input("SKU do Produto", key="est_sku", on_change=puxar_dados_sku_estoque)
+            with c_est_mlb: mlb_est = st.text_input("MLB do Anúncio", key="est_mlb", placeholder="Ex: MLB123456789")
                 
+            c_est3, c_est4 = st.columns([3, 1])
+            with c_est3: nome_est = st.text_input("Nome do Produto", key="est_nome", disabled=True)
+            with c_est4: peso_est = st.text_input("Peso (un)", key="est_peso", disabled=True)
+                
+            c_est5, c_est6, c_est7, c_est8 = st.columns([1.5, 1.5, 1, 1])
+            with c_est5:
+                opcoes_tam_est = ["", "Pequeno", "Médio", "Grande", "Extragrande"]
+                tam_est = st.selectbox("Tamanho (ML)", opcoes_tam_est, key="est_tam", on_change=calcular_custo_diario_estoque)
+            with c_est6: custo_diario_est = st.text_input("Custo Armaz. Unitário / Dia (R$)", key="est_custo_diario", disabled=True)
+            with c_est7: estoque_atual_est = st.number_input("Estoque Atual", min_value=0, step=1, key="est_qtd")
+            with c_est8: vendas_30d_est = st.number_input("Vendas (30 dias)", min_value=0, step=1, key="est_vendas_30d")
+                
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if st.button("➕ Inserir Item na Lista de Inventário"):
+                if cod_full_est.strip() and sku_est.strip():
+                    novo_item_est = {
+                        "Código do Full": cod_full_est.strip(),
+                        "SKU": sku_est.strip(),
+                        "MLB Anúncio": mlb_est.strip(),
+                        "Produto": st.session_state.get("est_nome", "").strip(),
+                        "Peso": st.session_state.get("est_peso", "").strip(),
+                        "Tamanho": st.session_state.get("est_tam", "").strip(),
+                        "Custo Diário": st.session_state.get("est_custo_diario", "").strip(),
+                        "Estoque Atual": st.session_state.get("est_qtd", 0),
+                        "Vendas (30 dias)": st.session_state.get("est_vendas_30d", 0)
+                    }
+                    st.session_state.estoque_itens.append(novo_item_est)
+                    
+                    for k in ["est_cod", "est_sku", "est_mlb", "est_nome", "est_peso", "est_tam", "est_custo_diario"]:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    
+                    st.session_state.est_qtd = 0
+                    st.session_state.est_vendas_30d = 0
+                    
+                    st.rerun()
+                else:
+                    st.error("❌ Preencha pelo menos o Código do Full e o SKU para inserir.")
+
+            st.markdown("---")
+            st.subheader("📋 Resumo do Inventário a Salvar")
+            
+            if st.session_state.estoque_itens:
+                df_est_itens = pd.DataFrame(st.session_state.estoque_itens)
+                st.dataframe(
+                    df_est_itens.style.set_properties(**{
+                        'background-color': '#F4F6F9',
+                        'color': '#1E1E1E',
+                        'border-color': '#E5E7EB',
+                        'text-align': 'center'
+                    }),
+                    use_container_width=True,
+                    hide_index=True 
+                )
+                
+                total_skus_inseridos = len(df_est_itens)
+                total_estoque_inserido = int(df_est_itens["Estoque Atual"].sum())
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                c_met1, c_met2, c_met3 = st.columns(3)
+                c_met1.metric("Total de SKUs na Lista", total_skus_inseridos)
+                c_met2.metric("Soma do Estoque Atual (Peças)", total_estoque_inserido)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                col_btn_est1, col_btn_est2, col_vazia_est = st.columns([3, 2, 5])
+                
+                with col_btn_est2:
+                    if st.button("🗑️ Limpar Lista de Inventário"):
+                        st.session_state.estoque_itens = []
+                        st.rerun()
+                        
+                with col_btn_est1:
+                    if st.button("💾 Salvar Inventário na Nuvem"):
+                        try:
+                            client = get_sheets_client()
+                            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                            
+                            try:
+                                sheet_est = doc.worksheet("Estoque Full")
+                            except:
+                                sheet_est = doc.add_worksheet(title="Estoque Full", rows="1000", cols="10")
+                                sheet_est.append_row(["Código do Full", "SKU", "MLB Anúncio", "Produto", "Peso", "Tamanho", "Custo Diário", "Estoque Atual", "Vendas (30 dias)", "Data de Atualização"])
+                            
+                            data_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                            df_banco = pd.DataFrame(sheet_est.get_all_records())
+                            
+                            codigos_existentes = []
+                            if not df_banco.empty and "Código do Full" in df_banco.columns:
+                                codigos_existentes = df_banco["Código do Full"].astype(str).str.strip().tolist()
+                            
+                            itens_novos = []
+                            
+                            for item in st.session_state.estoque_itens:
+                                valores = [
+                                    item["Código do Full"], item["SKU"], item["MLB Anúncio"], item["Produto"],
+                                    item["Peso"], item["Tamanho"], item["Custo Diário"], item["Estoque Atual"],
+                                    item["Vendas (30 dias)"], data_atual
+                                ]
+                                
+                                if item["Código do Full"] in codigos_existentes:
+                                    idx = codigos_existentes.index(item["Código do Full"])
+                                    sheet_est.update(range_name=f'A{idx+2}:J{idx+2}', values=[valores], value_input_option="USER_ENTERED")
+                                else:
+                                    itens_novos.append(valores)
+                                    codigos_existentes.append(item["Código do Full"])
+                            
+                            if itens_novos:
+                                sheet_est.append_rows(itens_novos, value_input_option="USER_ENTERED")
+                                
+                            st.success(f"✅ {len(st.session_state.estoque_itens)} produtos salvos/atualizados com sucesso no Estoque Full!")
+                            st.session_state.estoque_itens = []
+                            limpar_cache_estoque() # Atualiza pesquisa automática
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Erro ao salvar no Estoque Full: {e}")
+            else:
+                st.info("Nenhum item na lista. Preencha os dados e clique em 'Inserir Item' para construir a sua tabela.")
+
+        # ==========================================================
+        # ABA 3: CONSULTA DE ESTOQUE
+        # ==========================================================
+        with tab_consulta:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("📊 Consulta de Estoque Full")
+            st.markdown("Visualize todos os produtos atualmente cadastrados no seu inventário do Full.")
+            
+            if st.button("🔄 Atualizar Dados do Estoque"):
+                limpar_cache_estoque() 
                 st.rerun()
-            else:
-                st.error("❌ Preencha pelo menos o Tamanho e o SKU do produto para o inserir.")
+                
+            try:
+                client = get_sheets_client()
+                doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                sheet_est_view = doc.worksheet("Estoque Full")
+                df_est_view = pd.DataFrame(sheet_est_view.get_all_records())
+                
+                if not df_est_view.empty:
+                    st.dataframe(
+                        df_est_view.style.set_properties(**{
+                            'background-color': '#F4F6F9',
+                            'color': '#1E1E1E',
+                            'border-color': '#E5E7EB'
+                        }),
+                        use_container_width=True,
+                        hide_index=True 
+                    )
+                    
+                    total_skus = len(df_est_view)
+                    total_pecas = df_est_view["Estoque Atual"].sum() if "Estoque Atual" in df_est_view.columns else 0
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    c_res1, c_res2, c_res3 = st.columns(3)
+                    c_res1.metric("SKUs Cadastrados no Full", total_skus)
+                    c_res2.metric("Total de Peças Físicas", int(total_pecas))
+                else:
+                    st.info("A sua base de dados do Estoque Full está vazia.")
+            except Exception as e:
+                st.warning("A aba 'Estoque Full' ainda não possui dados ou não foi criada. Salve o primeiro produto na aba de Cadastro para ativá-la.")
