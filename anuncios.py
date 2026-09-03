@@ -2631,7 +2631,6 @@ elif menu_selecionado == "Product ADS":
                         st.info("Nenhuma análise registada para esta campanha.")
                 else:
                     st.info("Nenhuma análise registada no sistema.")
-
 # =====================================================================
 # MÓDULO 6: PÓS VENDA
 # =====================================================================
@@ -2648,6 +2647,17 @@ elif menu_selecionado == "Pós Venda":
     if "desc_oc" not in st.session_state: st.session_state.desc_oc = ""
     if "status_oc" not in st.session_state: st.session_state.status_oc = "Aberto"
     if "resolucao_oc" not in st.session_state: st.session_state.resolucao_oc = ""
+
+    # NOVA FUNÇÃO CALLBACK: Carrega os dados antes de desenhar a tela para evitar o erro do Streamlit
+    def preparar_edicao_ocorrencia(venda, id_an, sku, custo, rep, desc, status, res):
+        st.session_state.num_venda = str(venda)
+        st.session_state.id_an_oc = str(id_an)
+        st.session_state.sku_oc = str(sku)
+        st.session_state.custo_oc = str(custo)
+        st.session_state.reputacao_oc = str(rep)
+        st.session_state.desc_oc = str(desc)
+        st.session_state.status_oc = str(status)
+        st.session_state.resolucao_oc = str(res)
 
     def puxar_dados_ocorrencia_trigger():
         venda_busca = limpar_num_venda(st.session_state.get("num_venda", ""))
@@ -2680,6 +2690,22 @@ elif menu_selecionado == "Pós Venda":
             st.session_state.desc_oc = ""
             st.session_state.status_oc = "Aberto"
             st.session_state.resolucao_oc = ""
+
+    def puxar_sku_por_anuncio_trigger():
+        id_busca = st.session_state.get("id_an_oc", "").strip()
+        if id_busca:
+            try:
+                client = get_sheets_client()
+                doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
+                sheet_anuncios = doc.sheet1
+                df_a = pd.DataFrame(sheet_anuncios.get_all_records(value_render_option="UNFORMATTED_VALUE"))
+                if not df_a.empty and "ID do Anúncio" in df_a.columns:
+                    df_a["ID_Match"] = df_a["ID do Anúncio"].astype(str).str.strip()
+                    res = df_a[df_a["ID_Match"] == id_busca]
+                    if not res.empty:
+                        st.session_state.sku_oc = str(res.iloc[0].get("SKU", "")).strip()
+            except:
+                pass
 
     def excluir_ocorrencia(num_venda):
         df = cached_ocorrencias()
@@ -2734,7 +2760,7 @@ elif menu_selecionado == "Pós Venda":
             with c1:
                 num_venda = st.text_input("Número da Venda", key="num_venda", on_change=puxar_dados_ocorrencia_trigger)
             with c2:
-                id_an_oc = st.text_input("ID do Anúncio", key="id_an_oc")
+                id_an_oc = st.text_input("ID do Anúncio", key="id_an_oc", on_change=puxar_sku_por_anuncio_trigger)
             with c3:
                 sku_oc = st.text_input("SKU do Produto", key="sku_oc")
                 
@@ -2851,25 +2877,25 @@ elif menu_selecionado == "Pós Venda":
             
             st.markdown("<br><br>", unsafe_allow_html=True)
             st.subheader("📋 Ocorrências em Andamento")
-            st.caption("💡 Para inserir a Resolução de uma ocorrência, digite o Número da Venda acima, preencha o campo de Resolução, mude o status para 'Encerrado' e clique em Salvar.")
+            st.caption("💡 Para atualizar dados, clique em '✏️ Alterar'. Os dados voltarão para os campos acima.")
             
             df_oc = cached_ocorrencias()
             if df_oc is not None and not df_oc.empty and "Status" in df_oc.columns:
                 df_ativas = df_oc[df_oc["Status"] != "Encerrado"].copy()
                 if not df_ativas.empty:
                     st.markdown("---")
-                    c_v, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+                    c_v, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 2.5])
                     c_v.write("**Venda**")
                     c_an.write("**Anúncio**")
                     c_sku.write("**SKU**")
                     c_dt.write("**Atualização**")
                     c_st.write("**Status**")
                     c_cus.write("**Custo (R$)**")
-                    c_ac.write("**Ação**")
+                    c_ac.write("**Ações**")
                     st.markdown("---")
                     
                     for idx, row in df_ativas.iterrows():
-                        c_v, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1])
+                        c_v, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 2.5])
                         
                         venda_num = limpar_num_venda(row.get('Número da Venda', ''))
                         custo_val = converter_valor(row.get('Custo da Ocorrência', 0))
@@ -2881,7 +2907,26 @@ elif menu_selecionado == "Pós Venda":
                         c_st.markdown(f"<div style='margin-top: 5px; font-weight: bold; color: #DA1984;'>{str(row.get('Status', ''))}</div>", unsafe_allow_html=True)
                         c_cus.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>R$ {custo_val:.2f}</div>".replace('.', ','), unsafe_allow_html=True)
                         
-                        if c_ac.button("🔒 Encerrar", key=f"encerrar_{idx}", help="Encerra rapidamente sem detalhar a resolução"):
+                        col_alt, col_enc = c_ac.columns(2)
+                        
+                        # NOVA CHAMADA: Usa o on_click para evitar o erro do Streamlit
+                        col_alt.button(
+                            "✏️ Alterar", 
+                            key=f"alterar_{idx}",
+                            on_click=preparar_edicao_ocorrencia,
+                            args=(
+                                venda_num,
+                                str(row.get("ID do Anúncio", "")),
+                                str(row.get("SKU do Produto", "")),
+                                formatar_moeda_ui(custo_val),
+                                str(row.get("Afetou Reputação", "Não")),
+                                str(row.get("Descrição da Ocorrência", "")),
+                                str(row.get("Status", "Aberto")),
+                                str(row.get("Resolução", ""))
+                            )
+                        )
+                            
+                        if col_enc.button("✅ Encerrar", key=f"encerrar_{idx}", help="Encerra rapidamente arquivando na base de dados"):
                             if encerrar_ocorrencia(venda_num):
                                 st.session_state.sucesso_ocorrencia = "✅ Ocorrência encerrada e arquivada com sucesso!"
                                 cached_ocorrencias.clear()
@@ -2916,7 +2961,6 @@ elif menu_selecionado == "Pós Venda":
                     st.info("Nenhuma ocorrência foi encerrada até ao momento.")
             else:
                 st.info("Nenhuma ocorrência registrada no sistema.")
-
 # =====================================================================
 # MÓDULO 7: CALCULADORA SIMPLES
 # =====================================================================
@@ -3090,7 +3134,23 @@ elif menu_selecionado == "ChatBot":
 
                     with st.expander(f"📌 {nome}"):
                         st.caption("💡 Clique no ícone de cópia no canto superior direito do quadro abaixo para copiar a frase.")
-                        st.code(frase, language="text")
+                        
+                        frase_exibicao = frase
+                        
+                        # --- LÓGICA DINÂMICA DE PREENCHIMENTO ---
+                        # Ativa o campo extra se a frase for a de Retirada
+                        if "AGUARDANDO RETIRADA" in nome.upper() or "Agência Mercado Livre indicada" in frase:
+                            c_ag1, c_ag2 = st.columns([2, 2])
+                            with c_ag1:
+                                nome_agencia = st.text_input("🏢 Inserir Nome da Agência", key=f"ag_input_{idx}", placeholder="Ex: Ponto Frio Centro")
+                            
+                            if nome_agencia.strip():
+                                # Substitui de forma inteligente no texto final
+                                frase_exibicao = frase_exibicao.replace("Agência Mercado Livre indicada", f"Agência Mercado Livre {nome_agencia.strip()}")
+                                frase_exibicao = frase_exibicao.replace("agência indicada", f"agência {nome_agencia.strip()}")
+                        # ----------------------------------------
+                        
+                        st.code(frase_exibicao, language="text")
                         
                         c_btn, c_dt = st.columns([1, 4])
                         with c_dt:
@@ -3113,7 +3173,6 @@ elif menu_selecionado == "ChatBot":
                                     st.error(f"❌ Erro ao excluir: {e}")
             else:
                 st.info("Nenhuma frase cadastrada até o momento. Acesse a aba ao lado para criar a sua primeira interação.")
-
 # =====================================================================
 # MÓDULO 9: FULFILLMENT
 # =====================================================================
