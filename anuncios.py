@@ -290,6 +290,14 @@ def avaliar_expressao_matematica(texto):
 # =====================================================================
 # CACHE DE DADOS
 # =====================================================================
+def carregar_repositorio_anuncios():
+    try:
+        client = get_sheets_client()
+        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
+        data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+        if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo", "Link de Vendas", "Link de Promoções", "Código do Full"])
+        return pd.DataFrame(data)
+    except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo", "Link de Vendas", "Link de Promoções", "Código do Full"])
 @st.cache_data(ttl=15)
 def cached_produtos_data():
     try:
@@ -457,9 +465,26 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
         
         with st.spinner("Buscando dados na nuvem..."):
             repo_dados = carregar_repositorio_alertas()
+            
+        # ==========================================================
+        # CAMPO DE PESQUISA E FILTRO
+        # ==========================================================
+        opcoes_pesquisa = [""]
+        if not repo_dados.empty and "ID do Anúncio" in repo_dados.columns:
+            for _, row in repo_dados.iterrows():
+                c = str(row.get("ID do Anúncio", "")).strip()
+                n = str(row.get("Título", "")).strip()
+                if c and c.lower() != "nan":
+                    opcoes_pesquisa.append(f"{c} | {n}")
+                    
+        st.markdown("---")
+        filtro_selecionado = st.selectbox("🔍 Pesquisar Tarefas por Anúncio (MLB ou Título)", options=opcoes_pesquisa)
+        id_filtro = filtro_selecionado.split(" | ")[0].strip() if filtro_selecionado else ""
         
-        alertas_auto = []
-        tarefas_manuais = []
+        # ==========================================================
+        # PROCESSAMENTO UNIFICADO DAS TAREFAS
+        # ==========================================================
+        todas_tarefas = []
         hoje = datetime.now()
         
         if not repo_dados.empty and "ID do Anúncio" in repo_dados.columns:
@@ -471,6 +496,10 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                 if not id_an_lista or id_an_lista.lower() == "nan":
                     continue
                     
+                # Filtra pelo anúncio selecionado na caixa de pesquisa (se houver)
+                if id_filtro and id_an_lista != id_filtro:
+                    continue
+                    
                 # 1. Varredura Automática (> 7 dias sem atualização)
                 data_att_str = converter_data_sheets(row.get("Última Atualização", ""))
                 
@@ -479,12 +508,14 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                         data_att = datetime.strptime(data_att_str.strip(), "%d/%m/%Y")
                         dias_passados = (hoje - data_att).days
                         if dias_passados > 7:
-                            alertas_auto.append({
+                            todas_tarefas.append({
                                 "ID do Anúncio": id_an_lista,
                                 "Título do Anúncio": tit_an_lista,
-                                "Última Atualização": data_att_str,
-                                "Dias S/ Atualizar": dias_passados,
-                                "Tarefa Automática": "⚠️ Verificar Anúncio"
+                                "Tipo": "🚨 Alerta Automático",
+                                "Tarefa / Descrição": "Verificar Anúncio (Sem atualização recente)",
+                                "Data": data_att_str,
+                                "Status": f"Atrasado há {dias_passados} dias",
+                                "Data_Sort": data_att 
                             })
                     except:
                         pass
@@ -496,53 +527,125 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                         tar_list = json.loads(raw_tarefas_lista)
                         if isinstance(tar_list, list):
                             for t in tar_list:
-                                tarefas_manuais.append({
+                                venc_str = t.get("vencimento", "")
+                                try:
+                                    data_venc = datetime.strptime(venc_str.strip(), "%d/%m/%Y")
+                                except:
+                                    data_venc = datetime.max 
+                                    
+                                todas_tarefas.append({
                                     "ID do Anúncio": id_an_lista,
                                     "Título do Anúncio": tit_an_lista,
-                                    "Tarefa": t.get("descricao", ""),
-                                    "Vencimento": t.get("vencimento", "")
+                                    "Tipo": "📅 Tarefa Manual",
+                                    "Tarefa / Descrição": t.get("descricao", ""),
+                                    "Data": venc_str,
+                                    "Status": "Pendente",
+                                    "Data_Sort": data_venc 
                                 })
                     except:
                         pass
                         
-        st.markdown("---")
-        st.subheader("🚨 Alertas de Atualização (> 7 dias)")
-        if alertas_auto:
-            df_alertas = pd.DataFrame(alertas_auto)
-            # Ordena os alertas: Anúncios há mais tempo sem atualização aparecem no topo
-            df_alertas = df_alertas.sort_values(by="Dias S/ Atualizar", ascending=False)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📋 Todas as Tarefas e Alertas")
+        
+        if todas_tarefas:
+            # Ordena pela data mais antiga (mais urgente) primeiro
+            todas_tarefas.sort(key=lambda x: x['Data_Sort'])
             
-            st.dataframe(
-                df_alertas.style.set_properties(**{
-                    'background-color': '#FFF3CD',
-                    'color': '#856404',
-                    'font-weight': 'bold',
-                    'border-color': '#FFEEBA'
-                }),
-                use_container_width=True, hide_index=True
-            )
+            st.markdown("---")
+            c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.5, 2.5, 1.5, 2.5, 1, 1.5])
+            c0.write("**Ok**")
+            c1.write("**ID Anúncio**")
+            c2.write("**Título**")
+            c3.write("**Tipo**")
+            c4.write("**Descrição**")
+            c5.write("**Data**")
+            c6.write("**Status**")
+            st.markdown("---")
+            
+            chaves_tarefas = []
+            
+            for i, t in enumerate(todas_tarefas):
+                c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.5, 2.5, 1.5, 2.5, 1, 1.5])
+                chave = f"chk_tar_{i}_{t['ID do Anúncio']}"
+                chaves_tarefas.append((chave, t))
+                
+                with c0:
+                    st.checkbox("", key=chave, label_visibility="collapsed")
+                c1.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['ID do Anúncio']}</div>", unsafe_allow_html=True)
+                c2.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Título do Anúncio']}</div>", unsafe_allow_html=True)
+                c3.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Tipo']}</div>", unsafe_allow_html=True)
+                c4.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Tarefa / Descrição']}</div>", unsafe_allow_html=True)
+                c5.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Data']}</div>", unsafe_allow_html=True)
+                c6.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Status']}</div>", unsafe_allow_html=True)
+                
+            st.markdown("---")
+            
+            if st.button("✅ Concluir Tarefas Selecionadas"):
+                tarefas_selecionadas = [t for chave, t in chaves_tarefas if st.session_state.get(chave, False)]
+                
+                if tarefas_selecionadas:
+                    with st.spinner("Atualizando tarefas na nuvem..."):
+                        try:
+                            client = get_sheets_client()
+                            sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
+                            
+                            df_completo = pd.DataFrame(sheet.get_all_records(value_render_option="UNFORMATTED_VALUE"))
+                            
+                            if not df_completo.empty and "ID do Anúncio" in df_completo.columns:
+                                ids_afetados = set([t['ID do Anúncio'] for t in tarefas_selecionadas])
+                                headers = sheet.row_values(1)
+                                
+                                idx_col_data = headers.index("Última Atualização") + 1 if "Última Atualização" in headers else None
+                                idx_col_tar = headers.index("Tarefas Agendadas") + 1 if "Tarefas Agendadas" in headers else None
+                                
+                                for id_an in ids_afetados:
+                                    mask = df_completo["ID do Anúncio"].astype(str).str.strip() == str(id_an)
+                                    if mask.any():
+                                        idx_row = df_completo[mask].index[0]
+                                        linha_real = int(idx_row) + 2
+                                        
+                                        row_data = df_completo.iloc[idx_row]
+                                        
+                                        atualizar_data = False
+                                        nova_data = row_data.get("Última Atualização", "")
+                                        
+                                        tarefas_json = str(row_data.get("Tarefas Agendadas", "[]"))
+                                        if not tarefas_json or tarefas_json.lower() == "nan": tarefas_json = "[]"
+                                        try:
+                                            lista_tarefas = json.loads(tarefas_json)
+                                        except:
+                                            lista_tarefas = []
+                                            
+                                        atualizar_tarefas = False
+                                        
+                                        # Procura as tarefas selecionadas correspondentes a este anúncio
+                                        for t in tarefas_selecionadas:
+                                            if t['ID do Anúncio'] == id_an:
+                                                if t['Tipo'] == "🚨 Alerta Automático":
+                                                    atualizar_data = True
+                                                    nova_data = datetime.now().strftime("%d/%m/%Y")
+                                                elif t['Tipo'] == "📅 Tarefa Manual":
+                                                    lista_tarefas = [tar for tar in lista_tarefas if not (tar.get("descricao") == t['Tarefa / Descrição'] and tar.get("vencimento") == t['Data'])]
+                                                    atualizar_tarefas = True
+                                                    
+                                        # Envia as atualizações para o Google Sheets
+                                        if atualizar_data and idx_col_data:
+                                            sheet.update_cell(linha_real, idx_col_data, nova_data)
+                                            
+                                        if atualizar_tarefas and idx_col_tar:
+                                            sheet.update_cell(linha_real, idx_col_tar, json.dumps(lista_tarefas))
+                                            
+                            st.rerun() # Atualiza a tela limpando as tarefas concluídas
+                        except Exception as e:
+                            st.error(f"❌ Erro ao concluir tarefas: {e}")
+                else:
+                    st.warning("Selecione pelo menos uma tarefa para concluir.")
         else:
-            st.success("✅ Excelente! Todos os anúncios registados foram atualizados nos últimos 7 dias.")
-            
-        st.markdown("---")
-        st.subheader("📅 Tarefas Manuais Agendadas")
-        if tarefas_manuais:
-            df_manuais = pd.DataFrame(tarefas_manuais)
-            
-            # Ordena as tarefas: A data de vencimento mais próxima aparece no topo
-            df_manuais['Data_Sort'] = pd.to_datetime(df_manuais['Vencimento'], format='%d/%m/%Y', errors='coerce')
-            df_manuais = df_manuais.sort_values(by='Data_Sort', ascending=True).drop(columns=['Data_Sort'])
-            
-            st.dataframe(
-                df_manuais.style.set_properties(**{
-                    'background-color': '#F4F6F9',
-                    'color': '#1E1E1E',
-                    'border-color': '#E5E7EB'
-                }),
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.info("Nenhuma tarefa manual agendada nos anúncios.")
+            if id_filtro:
+                st.info(f"Não existem alertas ou tarefas pendentes para o anúncio '{id_filtro}'.")
+            else:
+                st.success("✅ Excelente! Não há alertas nem tarefas pendentes no momento.")
 # =====================================================================
 # MÓDULO 2: CADASTRO DE FORNECEDOR
 # =====================================================================
@@ -757,7 +860,7 @@ if menu_selecionado == "Cadastro de Fornecedor":
         except: 
             st.info("Nenhum fornecedor registrado ainda.")
 # =====================================================================
-# MÓDULO: CADASTRO DE ANÚNCIOS
+# MÓDULO 03: CADASTRO DE ANÚNCIOS
 # =====================================================================
 elif menu_selecionado == "Cadastro de Anúncios":
     import json
@@ -768,25 +871,24 @@ elif menu_selecionado == "Cadastro de Anúncios":
             client = get_sheets_client()
             sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
             data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
-            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo"])
+            if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo", "Link de Vendas", "Link de Promoções", "Código do Full"])
             return pd.DataFrame(data)
-        except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo"])
+        except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo", "Link de Vendas", "Link de Promoções", "Código do Full"])
 
     def salvar_no_repositorio(dados):
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
         
-        header = ["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo"]
-        if sheet.col_count < 20: sheet.add_cols(20 - sheet.col_count)
-        if sheet.row_values(1) != header: sheet.update(range_name='A1:T1', values=[header], value_input_option="USER_ENTERED")
+        header = ["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo", "Link de Vendas", "Link de Promoções", "Código do Full"]
+        if sheet.col_count < 23: sheet.add_cols(23 - sheet.col_count)
+        if sheet.row_values(1) != header: sheet.update(range_name='A1:W1', values=[header], value_input_option="USER_ENTERED")
 
         df = carregar_repositorio()
         valores_formatados = [f"{v:.2f}".replace('.', ',') if isinstance(v, float) else str(v) for v in dados.values()]
         if not df.empty and "ID do Anúncio" in df.columns and dados["ID do Anúncio"] in df["ID do Anúncio"].values:
             idx = df[df["ID do Anúncio"] == dados["ID do Anúncio"]].index[0]
-            sheet.update(range_name=f'A{idx+2}:T{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+            sheet.update(range_name=f'A{idx+2}:W{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
         else: sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
-    # ----------------------------------------------------------------
 
     def limpar_cache_anuncios():
         if "anuncios_opcoes" in st.session_state: del st.session_state["anuncios_opcoes"]
@@ -828,7 +930,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.fornecedor_produto = str(info_prod.get("Fornecedor", ""))
 
     def resetar_campos():
-        campos = ["id_anuncio", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "link_catalogo", "medida", "peso", "fornecedor_produto"]
+        campos = ["id_anuncio", "cod_full", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "link_catalogo", "link_vendas", "link_promocoes", "medida", "peso", "fornecedor_produto"]
         for c in campos: st.session_state[c] = ""
         st.session_state.custo = "0,00"
         st.session_state.preco = "0,00"
@@ -862,6 +964,9 @@ elif menu_selecionado == "Cadastro de Anúncios":
     if "sku" not in st.session_state: st.session_state.sku = ""
     if "link_anuncio" not in st.session_state: st.session_state.link_anuncio = ""
     if "link_catalogo" not in st.session_state: st.session_state.link_catalogo = ""
+    if "link_vendas" not in st.session_state: st.session_state.link_vendas = ""
+    if "link_promocoes" not in st.session_state: st.session_state.link_promocoes = ""
+    if "cod_full" not in st.session_state: st.session_state.cod_full = ""
     if "medida" not in st.session_state: st.session_state.medida = ""
     if "peso" not in st.session_state: st.session_state.peso = ""
     if "fornecedor_produto" not in st.session_state: st.session_state.fornecedor_produto = ""
@@ -878,8 +983,11 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.sku = str(row.get("SKU", "")) if pd.notna(row.get("SKU")) else ""
                 st.session_state.nome_produto = str(row.get("Produto", "")) if pd.notna(row.get("Produto")) else ""
                 st.session_state.titulo = str(row.get("Título", ""))
+                st.session_state.cod_full = str(row.get("Código do Full", "")) if pd.notna(row.get("Código do Full")) else ""
                 st.session_state.link_anuncio = str(row.get("Link do Anúncio", "")) if pd.notna(row.get("Link do Anúncio")) else ""
                 st.session_state.link_catalogo = str(row.get("Link do Catálogo", "")) if pd.notna(row.get("Link do Catálogo")) else ""
+                st.session_state.link_vendas = str(row.get("Link de Vendas", "")) if pd.notna(row.get("Link de Vendas")) else ""
+                st.session_state.link_promocoes = str(row.get("Link de Promoções", "")) if pd.notna(row.get("Link de Promoções")) else ""
                 st.session_state.custo = formatar_moeda_ui(row.get("Custo", 0))
                 st.session_state.preco = formatar_moeda_ui(row.get("Preço Original", 0))
                 st.session_state.frete = formatar_moeda_ui(row.get("Frete", 0))
@@ -901,8 +1009,16 @@ elif menu_selecionado == "Cadastro de Anúncios":
 
                 if atacado_data:
                     st.session_state.num_atacado = len(atacado_data)
+                    preco_orig_val = float(converter_valor(row.get("Preço Original", 0)))
                     for i, opt in enumerate(atacado_data):
-                        st.session_state[f"atac_desc_{i}"] = float(opt.get("desconto", 0.0))
+                        # Lê Preço Unitário se existir, ou calcula a partir do Desconto se for um registo antigo
+                        if "preco_unitario" in opt:
+                            pu_hist = float(opt["preco_unitario"])
+                        else:
+                            desc_hist = float(opt.get("desconto", 0.0))
+                            pu_hist = preco_orig_val * (1 - (desc_hist / 100))
+                            
+                        st.session_state[f"atac_pu_{i}"] = f"{pu_hist:.2f}".replace('.', ',')
                         st.session_state[f"atac_unid_{i}"] = int(opt.get("unidades", 1))
                         st.session_state[f"atac_frete_{i}"] = str(opt.get("frete", "0,00"))
                         st.session_state[f"atac_del_{i}"] = False
@@ -926,6 +1042,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.estado_original_anuncio = {
                     "SKU": st.session_state.sku,
                     "Título": st.session_state.titulo,
+                    "Código do Full": st.session_state.cod_full,
                     "Custo": float(converter_valor(row.get("Custo", 0))),
                     "Preço Original": float(converter_valor(row.get("Preço Original", 0))),
                     "Desconto": st.session_state.desconto,
@@ -937,8 +1054,11 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     "Imposto": st.session_state.imposto,
                     "Link": st.session_state.link_anuncio,
                     "Link Catálogo": st.session_state.link_catalogo,
+                    "Link Vendas": st.session_state.link_vendas,
+                    "Link Promoções": st.session_state.link_promocoes,
                     "Estratégias Atacado": atacado_json,
-                    "Otimizações": st.session_state.otimizacoes
+                    "Otimizações": st.session_state.otimizacoes,
+                    "Tarefas": json.dumps(st.session_state.tarefas_anuncio)
                 }
                 
                 if st.session_state.sku:
@@ -983,8 +1103,9 @@ elif menu_selecionado == "Cadastro de Anúncios":
             st.markdown("<br>", unsafe_allow_html=True)
 
             st.subheader("📢 Dados do Anúncio")
-            col1, col2, col3 = st.columns([1.5, 3, 1.5])
+            col1, col_cod, col2, col3 = st.columns([1.2, 1.2, 3, 1.5])
             with col1: id_input = st.text_input("ID do Anúncio (MLB)", placeholder="Ex: MLB123456789", key="id_anuncio")
+            with col_cod: cod_full_input = st.text_input("Código do Full", placeholder="Ex: AELM123", key="cod_full")
             with col2:
                 titulo_anuncio = st.text_input("Título do Anúncio", key="titulo")
                 if titulo_anuncio: 
@@ -999,17 +1120,9 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
                 link_atual = st.session_state.get("link_anuncio", "").strip()
                 if link_atual.startswith("http"):
-                    st.markdown(f'''
-                        <a href="{link_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">
-                            Acessar Anúncio 🔗
-                        </a>
-                    ''', unsafe_allow_html=True)
+                    st.markdown(f'''<a href="{link_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">Acessar Anúncio 🔗</a>''', unsafe_allow_html=True)
                 else:
-                    st.markdown('''
-                        <div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">
-                            Acessar Anúncio 🔗
-                        </div>
-                    ''', unsafe_allow_html=True)
+                    st.markdown('''<div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">Acessar Anúncio 🔗</div>''', unsafe_allow_html=True)
                     
             c_cat1, c_cat2 = st.columns([4, 1])
             with c_cat1:
@@ -1018,17 +1131,31 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
                 link_cat_atual = st.session_state.get("link_catalogo", "").strip()
                 if link_cat_atual.startswith("http"):
-                    st.markdown(f'''
-                        <a href="{link_cat_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">
-                            Acessar Catálogo 🔗
-                        </a>
-                    ''', unsafe_allow_html=True)
+                    st.markdown(f'''<a href="{link_cat_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">Acessar Catálogo 🔗</a>''', unsafe_allow_html=True)
                 else:
-                    st.markdown('''
-                        <div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">
-                            Acessar Catálogo 🔗
-                        </div>
-                    ''', unsafe_allow_html=True)
+                    st.markdown('''<div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">Acessar Catálogo 🔗</div>''', unsafe_allow_html=True)
+                    
+            c_ven1, c_ven2 = st.columns([4, 1])
+            with c_ven1:
+                link_vendas_input = st.text_input("🔗 Link de Vendas", placeholder="Ex: https://vendas.mercadolivre.com.br/...", key="link_vendas")
+            with c_ven2:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                link_ven_atual = st.session_state.get("link_vendas", "").strip()
+                if link_ven_atual.startswith("http"):
+                    st.markdown(f'''<a href="{link_ven_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">Acessar Vendas 🔗</a>''', unsafe_allow_html=True)
+                else:
+                    st.markdown('''<div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">Acessar Vendas 🔗</div>''', unsafe_allow_html=True)
+                    
+            c_pro1, c_pro2 = st.columns([4, 1])
+            with c_pro1:
+                link_promocoes_input = st.text_input("🔗 Link de Promoções", placeholder="Ex: https://vendedores.mercadolivre.com.br/promotions/...", key="link_promocoes")
+            with c_pro2:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                link_pro_atual = st.session_state.get("link_promocoes", "").strip()
+                if link_pro_atual.startswith("http"):
+                    st.markdown(f'''<a href="{link_pro_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">Acessar Promoções 🔗</a>''', unsafe_allow_html=True)
+                else:
+                    st.markdown('''<div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">Acessar Promoções 🔗</div>''', unsafe_allow_html=True)
 
             if st.session_state.get("mostrar_sucesso") and id_input == st.session_state.get("ultimo_id_carregado"):
                 st.info("ℹ️ Dados recuperados da nuvem.")
@@ -1141,18 +1268,18 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 for i in range(st.session_state.num_atacado):
                     if i not in to_delete:
                         remaining.append({
-                            "desc": st.session_state.get(f"atac_desc_{i}", 0.0),
+                            "pu": st.session_state.get(f"atac_pu_{i}", "0,00"),
                             "unid": st.session_state.get(f"atac_unid_{i}", 1),
                             "frete": st.session_state.get(f"atac_frete_{i}", "0,00")
                         })
                 
                 for i in range(st.session_state.num_atacado):
-                    for k in ["atac_desc_", "atac_unid_", "atac_frete_", "atac_del_"]:
+                    for k in ["atac_pu_", "atac_unid_", "atac_frete_", "atac_del_"]:
                         if f"{k}{i}" in st.session_state: del st.session_state[f"{k}{i}"]
                             
                 st.session_state.num_atacado = len(remaining)
                 for i, data in enumerate(remaining):
-                    st.session_state[f"atac_desc_{i}"] = data["desc"]
+                    st.session_state[f"atac_pu_{i}"] = data["pu"]
                     st.session_state[f"atac_unid_{i}"] = data["unid"]
                     st.session_state[f"atac_frete_{i}"] = data["frete"]
                     st.session_state[f"atac_del_{i}"] = False
@@ -1167,23 +1294,29 @@ elif menu_selecionado == "Cadastro de Anúncios":
             for i in range(st.session_state.num_atacado):
                 st.markdown(f"**Opção {i+1}**")
                 
-                c_chk, c_desc, c_unid, c_frete, c_pu, c_vt, c_lucro = st.columns([0.5, 2, 2, 2, 2, 2, 2.5])
+                c_chk, c_pu_col, c_unid, c_frete, c_desc_col, c_vt, c_lucro = st.columns([0.5, 2, 2, 2, 2, 2, 2.5])
                 
                 with c_chk:
                     st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
                     st.checkbox(" ", key=f"atac_del_{i}", label_visibility="collapsed")
                     
-                with c_desc:
-                    desc_atac = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key=f"atac_desc_{i}")
+                with c_pu_col:
+                    if f"atac_pu_{i}" not in st.session_state:
+                        st.session_state[f"atac_pu_{i}"] = "0,00"
+                    pu_atac_str = st.text_input("Preço Unitário (R$)", key=f"atac_pu_{i}")
+                    preco_unit_atac = converter_valor(pu_atac_str)
+                    
                 with c_unid:
                     unid_atac = st.number_input("Unidades", min_value=1, step=1, key=f"atac_unid_{i}")
+                    
                 with c_frete:
                     if f"atac_frete_{i}" not in st.session_state:
                         st.session_state[f"atac_frete_{i}"] = "0,00"
                     frete_atac_str = st.text_input("Frete (R$)", key=f"atac_frete_{i}")
                     frete_atac = converter_valor(frete_atac_str)
-                    
-                preco_unit_atac = preco_original * (1 - (desc_atac / 100))
+                
+                # --- CÁLCULOS DA ESTRATÉGIA ---
+                desc_atac = ((preco_original - preco_unit_atac) / preco_original * 100) if preco_original > 0 else 0.0
                 valor_total_atac = preco_unit_atac * unid_atac
                 
                 comissao_atac = valor_total_atac * (comissao_mkt_porcentagem / 100)
@@ -1195,8 +1328,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 margem_atac = (lucro_atac / valor_total_atac * 100) if valor_total_atac > 0 else 0.0
                 
                 spc = "\u200B" * i
-                with c_pu:
-                    st.text_input(f"Preço Unitário (R$){spc}", value=f"{preco_unit_atac:.2f}".replace('.', ','), disabled=True)
+                with c_desc_col:
+                    st.text_input(f"Desconto (%){spc}", value=f"{desc_atac:.2f}%".replace('.', ','), disabled=True)
                 with c_vt:
                     st.text_input(f"Valor Total (R$){spc}", value=f"{valor_total_atac:.2f}".replace('.', ','), disabled=True)
                 with c_lucro:
@@ -1210,9 +1343,6 @@ elif menu_selecionado == "Cadastro de Anúncios":
             st.subheader("💡 Otimizações")
             otimizacoes_texto = st.text_area("Observações e testes aplicados no anúncio:", key="otimizacoes", height=100)
 
-            # ==========================================================
-            # SEÇÃO: AGENDAMENTO DE TAREFAS
-            # ==========================================================
             st.markdown("---")
             st.subheader("📅 Agendamento de Tarefas")
             st.markdown("Crie tarefas manuais para acompanhar em **Tarefas Pendentes**.")
@@ -1286,8 +1416,11 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     
                     atacado_data = []
                     for i in range(st.session_state.get("num_atacado", 0)):
+                        pu_val = converter_valor(st.session_state.get(f"atac_pu_{i}", "0,00"))
+                        desc_val = ((preco_original - pu_val) / preco_original * 100) if preco_original > 0 else 0.0
                         atacado_data.append({
-                            "desconto": st.session_state.get(f"atac_desc_{i}", 0.0),
+                            "preco_unitario": pu_val,
+                            "desconto": desc_val,
                             "unidades": st.session_state.get(f"atac_unid_{i}", 1),
                             "frete": st.session_state.get(f"atac_frete_{i}", "0,00")
                         })
@@ -1297,6 +1430,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     campos_rastreados = {
                         "SKU": sku_anuncio,
                         "Título": titulo_anuncio,
+                        "Código do Full": cod_full_input,
                         "Custo": custo_produto,
                         "Preço Original": preco_original,
                         "Desconto": porcentagem_desconto,
@@ -1308,7 +1442,10 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         "Imposto": imposto_porcentagem,
                         "Link": link_anuncio_input,
                         "Link Catálogo": link_catalogo_input,
-                        "Estratégias Atacado": estrategias_json
+                        "Link Vendas": link_vendas_input,
+                        "Link Promoções": link_promocoes_input,
+                        "Estratégias Atacado": estrategias_json,
+                        "Tarefas": tarefas_json
                     }
                     
                     estado_orig = st.session_state.get("estado_original_anuncio", {})
@@ -1326,13 +1463,17 @@ elif menu_selecionado == "Cadastro de Anúncios":
                             if isinstance(v, float) and isinstance(v_orig, float):
                                 if abs(v - v_orig) > 0.001: 
                                     mudancas.append(f"{k} (de {fmt_val(v_orig)} para {fmt_val(v)})")
-                            elif k == "Estratégias Atacado":
+                            elif k in ["Estratégias Atacado", "Tarefas"]:
                                 try:
                                     j_v = json.loads(str(v)) if str(v).strip() else []
                                     j_orig = json.loads(str(v_orig)) if str(v_orig).strip() else []
-                                    if j_v != j_orig: mudancas.append("Estratégias de Atacado alteradas")
+                                    if j_v != j_orig: 
+                                        msg = "Estratégias de Atacado alteradas" if k == "Estratégias Atacado" else "Tarefas agendadas alteradas"
+                                        mudancas.append(msg)
                                 except:
-                                    if str(v).strip() != str(v_orig).strip(): mudancas.append("Estratégias de Atacado alteradas")
+                                    if str(v).strip() != str(v_orig).strip(): 
+                                        msg = "Estratégias de Atacado alteradas" if k == "Estratégias Atacado" else "Tarefas agendadas alteradas"
+                                        mudancas.append(msg)
                             elif str(v).strip() != str(v_orig).strip():
                                 mudancas.append(f"{k} (de '{fmt_val(v_orig)}' para '{fmt_val(v)}')")
 
@@ -1363,7 +1504,10 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         "Historico_Alteracoes": historico_json,
                         "Otimizacoes": otimizacoes_texto,
                         "Tarefas Agendadas": tarefas_json,
-                        "Link do Catálogo": link_catalogo_input
+                        "Link do Catálogo": link_catalogo_input,
+                        "Link de Vendas": link_vendas_input,
+                        "Link de Promoções": link_promocoes_input,
+                        "Código do Full": cod_full_input
                     }
                     
                     try:
@@ -1488,6 +1632,10 @@ elif menu_selecionado == "Cadastro de Produto":
     if "campo_sem_p" not in st.session_state: st.session_state.campo_sem_p = ""
     if "desc_p" not in st.session_state: st.session_state.desc_p = ""
     if "historico_precos_p" not in st.session_state: st.session_state.historico_precos_p = []
+    
+    # Novas variáveis para o Kit
+    if "medida_kit" not in st.session_state: st.session_state.medida_kit = ""
+    if "peso_kit" not in st.session_state: st.session_state.peso_kit = ""
 
     if st.session_state.limpar_produto:
         st.session_state.sku_p = ""
@@ -1508,6 +1656,8 @@ elif menu_selecionado == "Cadastro de Produto":
         
         st.session_state.sku_kit = ""
         st.session_state.nome_kit = ""
+        st.session_state.medida_kit = ""
+        st.session_state.peso_kit = ""
         st.session_state.pesquisa_kit = ""
         st.session_state.sku_original_kit = ""
         st.session_state.num_componentes_kit = 1
@@ -1642,6 +1792,8 @@ elif menu_selecionado == "Cadastro de Produto":
                 st.session_state.sku_original_kit = str(info_prod.get("SKU", ""))
                 st.session_state.sku_kit = str(info_prod.get("SKU", ""))
                 st.session_state.nome_kit = str(info_prod.get("Produto", ""))
+                st.session_state.medida_kit = str(info_prod.get("Medida", ""))
+                st.session_state.peso_kit = str(info_prod.get("Peso", ""))
             
             df_kits = cached_kits_composicao()
             if df_kits is not None and not df_kits.empty and "SKU do Kit" in df_kits.columns:
@@ -1664,6 +1816,8 @@ elif menu_selecionado == "Cadastro de Produto":
                             del st.session_state[k]
         else:
             st.session_state.sku_original_kit = ""
+            st.session_state.medida_kit = ""
+            st.session_state.peso_kit = ""
 
     def puxar_dados_kit_por_sku_trigger():
         sku_kit_digitado = st.session_state.get("sku_kit", "").strip()
@@ -1672,6 +1826,8 @@ elif menu_selecionado == "Cadastro de Produto":
             if info_prod is not None:
                 st.session_state.sku_original_kit = str(info_prod.get("SKU", ""))
                 st.session_state.nome_kit = str(info_prod.get("Produto", ""))
+                st.session_state.medida_kit = str(info_prod.get("Medida", ""))
+                st.session_state.peso_kit = str(info_prod.get("Peso", ""))
             
             df_kits = cached_kits_composicao()
             if df_kits is not None and not df_kits.empty and "SKU do Kit" in df_kits.columns:
@@ -1864,6 +2020,10 @@ elif menu_selecionado == "Cadastro de Produto":
             with c1: sku_kit = st.text_input("SKU do Kit", key="sku_kit", on_change=puxar_dados_kit_por_sku_trigger)
             with c2: nome_kit = st.text_input("Nome do Kit", key="nome_kit")
             
+            c_med_k, c_peso_k = st.columns(2)
+            with c_med_k: medida_kit = st.text_input("Medidas (Ex: 10x10x10)", key="medida_kit")
+            with c_peso_k: peso_kit = st.text_input("Peso (kg)", key="peso_kit")
+            
             st.markdown("#### Componentes do Kit")
             custo_total_kit = 0.0
             
@@ -1924,7 +2084,10 @@ elif menu_selecionado == "Cadastro de Produto":
                 if sku_kit.strip() and nome_kit.strip() and custo_total_kit > 0:
                     dados_kit_prod = {
                         "SKU": sku_kit.strip(), "Produto": nome_kit.strip(), "Custo": custo_total_kit,
-                        "Fornecedor": "", "Data Ref": "", "EAN": "", "NCM": "", "CST": "", "Medida": "", "Peso": "", "Campo_Semantico": "", "Descricao": "", "Historico_Precos": "[]"
+                        "Fornecedor": "", "Data Ref": "", "EAN": "", "NCM": "", "CST": "", 
+                        "Medida": medida_kit.strip(), 
+                        "Peso": peso_kit.strip(), 
+                        "Campo_Semantico": "", "Descricao": "", "Historico_Precos": "[]"
                     }
                     try:
                         sku_orig_kit = st.session_state.get("sku_original_kit", "")
@@ -1992,8 +2155,26 @@ elif menu_selecionado == "Cadastro de Produto":
             if df_prods is not None and not df_prods.empty:
                 df_prods_sorted = df_prods.sort_values(by="SKU", ascending=True).reset_index(drop=True)
                 
+                df_display = df_prods_sorted.copy()
+                
+                if "Data de Referência" in df_display.columns:
+                    df_display["Data de Referência"] = df_display["Data de Referência"].apply(converter_data_sheets)
+                    
+                if "Custo" in df_display.columns:
+                    df_display["Custo"] = df_display["Custo"].apply(
+                        lambda x: f"R$ {float(converter_valor(x)):.2f}".replace('.', ',') if pd.notna(x) and str(x).strip() != "" else ""
+                    )
+                    
+                cols = df_display.columns.tolist()
+                colunas_base = ["SKU", "Produto", "Fornecedor", "Custo", "Data de Referência"]
+                colunas_restantes = [c for c in cols if c not in colunas_base and c not in ["Historico_Precos", "Características/Descrição"]]
+                
+                ordem_final = colunas_base + colunas_restantes
+                ordem_final = [c for c in ordem_final if c in df_display.columns]
+                df_display = df_display[ordem_final]
+                
                 st.dataframe(
-                    df_prods_sorted.style.set_properties(**{
+                    df_display.style.set_properties(**{
                         'background-color': '#F4F6F9',
                         'color': '#1E1E1E',
                         'border-color': '#E5E7EB'
@@ -2003,7 +2184,6 @@ elif menu_selecionado == "Cadastro de Produto":
                 )
             else:
                 st.info("Nenhum produto cadastrado até o momento.")
-
 # =====================================================================
 # MÓDULO 5: DESPESAS A PAGAR 
 # =====================================================================
@@ -3287,7 +3467,6 @@ elif menu_selecionado == "Fulfillment":
             st.markdown("<br>", unsafe_allow_html=True)
             st.subheader("Dados do Envio")
             
-            # Função para carregar um envio existente para edição
             def carregar_dados_envio():
                 nome_busca = st.session_state.get("nome_envio_input", "").strip()
                 if nome_busca:
@@ -3545,7 +3724,6 @@ elif menu_selecionado == "Fulfillment":
                                 itens_json
                             ]
                             
-                            # Verifica se o envio já existe para atualizar, senão insere nova linha
                             df_banco = pd.DataFrame(sheet.get_all_records())
                             envios_existentes = []
                             if not df_banco.empty and "Nome do Envio" in df_banco.columns:
@@ -3559,7 +3737,6 @@ elif menu_selecionado == "Fulfillment":
                                 sheet.append_row(valores, value_input_option="USER_ENTERED")
                                 st.success(f"✅ Novo envio '{n_envio_salvar}' salvo com sucesso!")
                             
-                            # Limpa os campos após salvar
                             st.session_state.full_itens = []
                             for k in ["nome_envio_input", "codigo_envio_input"]:
                                 if k in st.session_state: del st.session_state[k]
@@ -3571,7 +3748,6 @@ elif menu_selecionado == "Fulfillment":
                     else:
                         st.error("❌ Preencha o Nome e o Código do Envio (no topo da página) antes de salvar.")
                         
-            # --- LISTAGEM DE PRÓXIMOS ENVIOS ---
             st.markdown("---")
             st.subheader("🗓️ Histórico e Próximos Envios")
             try:
@@ -3581,7 +3757,6 @@ elif menu_selecionado == "Fulfillment":
                 df_historico = pd.DataFrame(sheet_historico.get_all_records())
                 
                 if not df_historico.empty:
-                    # Mostrar apenas as colunas amigáveis ao utilizador (sem o JSON)
                     colunas_mostrar = ["Nome do Envio", "Código do Envio", "Data do Envio", "Data de Entrega", "Quantidade Total", "Peso Total (kg)", "Custo Total (R$)"]
                     df_historico_mostrar = df_historico[colunas_mostrar].copy()
                     
@@ -3607,6 +3782,51 @@ elif menu_selecionado == "Fulfillment":
             st.subheader("🏭 Cadastro de Produto no Estoque Full")
             st.markdown("Adicione os seus produtos à lista de inventário abaixo e grave todos de uma vez.")
             
+            # --- INTELIGÊNCIA: Busca cruzada entre Estoque e Anúncios ---
+            def puxar_dados_cod_full_cadastro():
+                cod_busca = st.session_state.get("est_cod", "").strip()
+                if cod_busca:
+                    # 1. Procura no Cadastro de Anúncios primeiro
+                    df_anuncios = carregar_repositorio_anuncios()
+                    if not df_anuncios.empty and "Código do Full" in df_anuncios.columns:
+                        df_anuncios["Cod_Match"] = df_anuncios["Código do Full"].astype(str).str.strip()
+                        res = df_anuncios[df_anuncios["Cod_Match"] == cod_busca]
+                        if not res.empty:
+                            st.session_state.est_mlb = str(res.iloc[0].get("ID do Anúncio", ""))
+                            st.session_state.est_sku = str(res.iloc[0].get("SKU", ""))
+                            st.session_state.est_nome = str(res.iloc[0].get("Produto", ""))
+                            info_prod = buscar_produto_por_sku(st.session_state.est_sku)
+                            if info_prod: st.session_state.est_peso = str(info_prod.get("Peso", ""))
+                            return
+                            
+                    # 2. Se não achar nos anúncios, procura no histórico de Estoque Full
+                    df_est = st.session_state.get("df_estoque_cache", pd.DataFrame())
+                    if not df_est.empty and "Código do Full" in df_est.columns:
+                        df_est["Cod_Match"] = df_est["Código do Full"].astype(str).str.strip()
+                        row = df_est[df_est["Cod_Match"] == cod_busca]
+                        if not row.empty:
+                            item = row.iloc[0]
+                            st.session_state.est_mlb = str(item.get("MLB Anúncio", ""))
+                            st.session_state.est_sku = str(item.get("SKU", ""))
+                            st.session_state.est_nome = str(item.get("Produto", ""))
+                            st.session_state.est_peso = str(item.get("Peso", ""))
+
+            def puxar_dados_mlb_estoque():
+                mlb_busca = st.session_state.get("est_mlb", "").strip()
+                if mlb_busca:
+                    df_anuncios = carregar_repositorio_anuncios()
+                    if not df_anuncios.empty and "ID do Anúncio" in df_anuncios.columns:
+                        df_anuncios["MLB_Match"] = df_anuncios["ID do Anúncio"].astype(str).str.strip()
+                        res = df_anuncios[df_anuncios["MLB_Match"] == mlb_busca]
+                        if not res.empty:
+                            st.session_state.est_sku = str(res.iloc[0].get("SKU", ""))
+                            st.session_state.est_nome = str(res.iloc[0].get("Produto", ""))
+                            cod_full = str(res.iloc[0].get("Código do Full", ""))
+                            if cod_full and cod_full.lower() != "nan":
+                                st.session_state.est_cod = cod_full
+                            info_prod = buscar_produto_por_sku(st.session_state.est_sku)
+                            if info_prod: st.session_state.est_peso = str(info_prod.get("Peso", ""))
+
             def puxar_dados_sku_estoque():
                 sku_busca = st.session_state.get("est_sku", "").strip()
                 if sku_busca:
@@ -3629,9 +3849,9 @@ elif menu_selecionado == "Fulfillment":
                     st.session_state.est_custo_diario = ""
             
             c_est1, c_est2, c_est_mlb = st.columns([1.5, 1.5, 1.5])
-            with c_est1: cod_full_est = st.text_input("Código do Full", key="est_cod", placeholder="Ex: AELM32649")
+            with c_est1: cod_full_est = st.text_input("Código do Full", key="est_cod", on_change=puxar_dados_cod_full_cadastro, placeholder="Ex: AELM32649")
             with c_est2: sku_est = st.text_input("SKU do Produto", key="est_sku", on_change=puxar_dados_sku_estoque)
-            with c_est_mlb: mlb_est = st.text_input("MLB do Anúncio", key="est_mlb", placeholder="Ex: MLB123456789")
+            with c_est_mlb: mlb_est = st.text_input("MLB do Anúncio", key="est_mlb", on_change=puxar_dados_mlb_estoque, placeholder="Ex: MLB123456789")
                 
             c_est3, c_est4 = st.columns([3, 1])
             with c_est3: nome_est = st.text_input("Nome do Produto", key="est_nome", disabled=True)
@@ -3743,6 +3963,31 @@ elif menu_selecionado == "Fulfillment":
                             if itens_novos:
                                 sheet_est.append_rows(itens_novos, value_input_option="USER_ENTERED")
                                 
+                            # --- SINCRONIZAÇÃO CRUZADA: ATUALIZA A BASE DE ANÚNCIOS ---
+                            try:
+                                sheet_anuncios = doc.sheet1
+                                df_an = pd.DataFrame(sheet_anuncios.get_all_records(value_render_option="UNFORMATTED_VALUE"))
+                                if not df_an.empty and "ID do Anúncio" in df_an.columns:
+                                    headers_an = sheet_anuncios.row_values(1)
+                                    
+                                    if "Código do Full" not in headers_an:
+                                        idx_col_cod = len(headers_an) + 1
+                                        sheet_anuncios.update_cell(1, idx_col_cod, "Código do Full")
+                                    else:
+                                        idx_col_cod = headers_an.index("Código do Full") + 1
+                                        
+                                    for item in st.session_state.estoque_itens:
+                                        mlb_item = item.get("MLB Anúncio", "").strip()
+                                        cod_item = item.get("Código do Full", "").strip()
+                                        
+                                        if mlb_item and cod_item:
+                                            mask = df_an["ID do Anúncio"].astype(str).str.strip() == mlb_item
+                                            if mask.any():
+                                                idx_row = int(df_an[mask].index[0]) + 2
+                                                sheet_anuncios.update_cell(idx_row, idx_col_cod, cod_item)
+                            except Exception as e_sync:
+                                st.warning(f"Inventário salvo, mas houve um erro ao vincular o código ao Anúncio: {e_sync}")
+                                
                             st.success(f"✅ {len(st.session_state.estoque_itens)} produtos salvos/atualizados com sucesso no Estoque Full!")
                             st.session_state.estoque_itens = []
                             limpar_cache_estoque() # Atualiza pesquisa automática
@@ -3752,9 +3997,6 @@ elif menu_selecionado == "Fulfillment":
             else:
                 st.info("Nenhum item na lista. Preencha os dados e clique em 'Inserir Item' para construir a sua tabela.")
 
-        # ==========================================================
-        # ABA 3: CONSULTA DE ESTOQUE
-        # ==========================================================
         with tab_consulta:
             st.markdown("<br>", unsafe_allow_html=True)
             st.subheader("📊 Consulta de Estoque Full")
