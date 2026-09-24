@@ -299,6 +299,66 @@ def carregar_repositorio_anuncios():
         return pd.DataFrame(data)
     except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo", "Link de Vendas", "Link de Promoções", "Código do Full"])
 @st.cache_data(ttl=15)
+@st.cache_data(ttl=3600)
+def cached_tabela_frete():
+    try:
+        # Caminho exato da sua máquina para ler a matriz de fretes
+        caminho_frete = r"C:\Users\Usuario\Meu Drive\BI\Mercado_Livre\base_de_dados\custo_frete.xlsx"
+        df = pd.read_excel(caminho_frete)
+        return df
+    except:
+        return pd.DataFrame()
+
+def calcular_frete_por_regras(peso_kg, preco_final):
+    df_frete = cached_tabela_frete()
+    if df_frete.empty: return 0.0
+    
+    # 1. Encontrar a coluna com base no preço final
+    if preco_final < 19.00: col = 'R$ 0 a R$ 18,99*'
+    elif preco_final < 49.00: col = 'R$ 19 a R$ 48,99'
+    elif preco_final < 79.00: col = 'R$ 49 a R$ 78,99'
+    elif preco_final < 100.00: col = 'R$ 79 a R$ 99,99'
+    elif preco_final < 120.00: col = 'R$ 100 a R$ 119,99'
+    elif preco_final < 150.00: col = 'R$ 120 a R$ 149,99'
+    elif preco_final < 200.00: col = 'R$ 150 a R$ 199,99'
+    else: col = 'A partir de R$ 200'
+    
+    # 2. Encontrar o índice da linha com base no peso (kg)
+    if peso_kg <= 0.3: idx = 0
+    elif peso_kg <= 0.5: idx = 1
+    elif peso_kg <= 1.0: idx = 2
+    elif peso_kg <= 1.5: idx = 3
+    elif peso_kg <= 2.0: idx = 4
+    elif peso_kg <= 3.0: idx = 5
+    elif peso_kg <= 4.0: idx = 6
+    elif peso_kg <= 5.0: idx = 7
+    elif peso_kg <= 6.0: idx = 8
+    elif peso_kg <= 7.0: idx = 9
+    elif peso_kg <= 8.0: idx = 10
+    elif peso_kg <= 9.0: idx = 11
+    elif peso_kg <= 10.0: idx = 12
+    elif peso_kg <= 11.0: idx = 13
+    elif peso_kg <= 13.0: idx = 14
+    elif peso_kg <= 15.0: idx = 15
+    elif peso_kg <= 17.0: idx = 16
+    elif peso_kg <= 20.0: idx = 17
+    elif peso_kg <= 25.0: idx = 18
+    elif peso_kg <= 30.0: idx = 19
+    elif peso_kg <= 40.0: idx = 20
+    elif peso_kg <= 50.0: idx = 21
+    elif peso_kg <= 60.0: idx = 22
+    elif peso_kg <= 70.0: idx = 23
+    elif peso_kg <= 80.0: idx = 24
+    elif peso_kg <= 90.0: idx = 25
+    elif peso_kg <= 100.0: idx = 26
+    elif peso_kg <= 125.0: idx = 27
+    elif peso_kg <= 150.0: idx = 28
+    else: idx = 29
+    
+    try:
+        return float(df_frete.at[idx, col])
+    except:
+        return 0.0
 def cached_produtos_data():
     try:
         client = get_sheets_client()
@@ -458,13 +518,23 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
             return pd.DataFrame(data)
         except: return pd.DataFrame(columns=["ID do Anúncio", "Título", "Última Atualização", "Tarefas Agendadas"])
 
+    def carregar_despesas_pendentes():
+        try:
+            client = get_sheets_client()
+            sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Despesas")
+            data = sheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+            return pd.DataFrame(data) if data else pd.DataFrame()
+        except:
+            return pd.DataFrame()
+
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
         st.title("📋 Tarefas Pendentes e Alertas")
-        st.markdown("Acompanhe aqui os alertas de verificação de anúncios estagnados e as tarefas manuais agendadas.")
+        st.markdown("Acompanhe aqui os alertas de anúncios, tarefas manuais e despesas a vencer ou atrasadas.")
         
         with st.spinner("Buscando dados na nuvem..."):
             repo_dados = carregar_repositorio_alertas()
+            repo_despesas = carregar_despesas_pendentes()
             
         # ==========================================================
         # CAMPO DE PESQUISA E FILTRO
@@ -486,6 +556,7 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
         # ==========================================================
         todas_tarefas = []
         hoje = datetime.now()
+        hoje_date = hoje.date()
         
         if not repo_dados.empty and "ID do Anúncio" in repo_dados.columns:
             for idx, row in repo_dados.iterrows():
@@ -509,8 +580,8 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                         dias_passados = (hoje - data_att).days
                         if dias_passados > 7:
                             todas_tarefas.append({
-                                "ID do Anúncio": id_an_lista,
-                                "Título do Anúncio": tit_an_lista,
+                                "ID/Ref": id_an_lista,
+                                "Título/Fornecedor": tit_an_lista,
                                 "Tipo": "🚨 Alerta Automático",
                                 "Tarefa / Descrição": "Verificar Anúncio (Sem atualização recente)",
                                 "Data": data_att_str,
@@ -534,8 +605,8 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                                     data_venc = datetime.max 
                                     
                                 todas_tarefas.append({
-                                    "ID do Anúncio": id_an_lista,
-                                    "Título do Anúncio": tit_an_lista,
+                                    "ID/Ref": id_an_lista,
+                                    "Título/Fornecedor": tit_an_lista,
                                     "Tipo": "📅 Tarefa Manual",
                                     "Tarefa / Descrição": t.get("descricao", ""),
                                     "Data": venc_str,
@@ -544,6 +615,43 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                                 })
                     except:
                         pass
+        
+        # 3. Varredura de Despesas (Vencidas ou Vencem Hoje)
+        # O filtro de anúncio não se aplica a despesas financeiras (pois não têm MLB). 
+        # Mostramos as despesas a menos que o utilizador esteja especificamente a filtrar por um anúncio.
+        if not id_filtro and not repo_despesas.empty and "Status" in repo_despesas.columns:
+            for idx, row in repo_despesas.iterrows():
+                if str(row.get("Status", "")).strip().lower() != "pago":
+                    venc_str = converter_data_sheets(row.get("Data de Vencimento", ""))
+                    if venc_str and venc_str.lower() != "nan":
+                        try:
+                            data_venc = datetime.strptime(venc_str.strip(), "%d/%m/%Y").date()
+                            
+                            # Condição: Vence hoje ou já está atrasada
+                            if data_venc <= hoje_date:
+                                dias_atraso = (hoje_date - data_venc).days
+                                se_hoje = dias_atraso == 0
+                                status_txt = "🚨 Vence HOJE!" if se_hoje else f"Atrasado há {dias_atraso} dias"
+                                
+                                val_parcela = formatar_moeda_ui(row.get("Valor da Parcela", 0))
+                                nf = normalizar_nf(row.get("Número da Nota Fiscal", ""))
+                                forn = str(row.get("Nome do Fornecedor", ""))
+                                parc = str(row.get("Parcela", ""))
+                                
+                                todas_tarefas.append({
+                                    "ID/Ref": f"NF: {nf}",
+                                    "Título/Fornecedor": f"{forn} (Parc: {parc})",
+                                    "Tipo": "💸 Despesa a Pagar",
+                                    "Tarefa / Descrição": f"Pagar fatura no valor de R$ {val_parcela}",
+                                    "Data": venc_str,
+                                    "Status": status_txt,
+                                    "Data_Sort": datetime.combine(data_venc, datetime.min.time()),
+                                    "Fornecedor": forn,
+                                    "NF_Original": row.get("Número da Nota Fiscal", ""),
+                                    "Parcela": parc
+                                })
+                        except:
+                            pass
                         
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("📋 Todas as Tarefas e Alertas")
@@ -555,8 +663,8 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
             st.markdown("---")
             c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.5, 2.5, 1.5, 2.5, 1, 1.5])
             c0.write("**Ok**")
-            c1.write("**ID Anúncio**")
-            c2.write("**Título**")
+            c1.write("**ID / Ref.**")
+            c2.write("**Título / Fornecedor**")
             c3.write("**Tipo**")
             c4.write("**Descrição**")
             c5.write("**Data**")
@@ -567,17 +675,19 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
             
             for i, t in enumerate(todas_tarefas):
                 c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.5, 2.5, 1.5, 2.5, 1, 1.5])
-                chave = f"chk_tar_{i}_{t['ID do Anúncio']}"
+                chave = f"chk_tar_{i}_{t['ID/Ref']}"
                 chaves_tarefas.append((chave, t))
                 
                 with c0:
                     st.checkbox("", key=chave, label_visibility="collapsed")
-                c1.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['ID do Anúncio']}</div>", unsafe_allow_html=True)
-                c2.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Título do Anúncio']}</div>", unsafe_allow_html=True)
+                c1.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['ID/Ref']}</div>", unsafe_allow_html=True)
+                c2.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Título/Fornecedor']}</div>", unsafe_allow_html=True)
                 c3.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Tipo']}</div>", unsafe_allow_html=True)
                 c4.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Tarefa / Descrição']}</div>", unsafe_allow_html=True)
                 c5.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Data']}</div>", unsafe_allow_html=True)
-                c6.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Status']}</div>", unsafe_allow_html=True)
+                
+                cor_status = "#DA1984" if "Atrasado" in t['Status'] or "HOJE" in t['Status'] else "#1E1E1E"
+                c6.markdown(f"<div style='margin-top: 5px; font-weight: bold; color: {cor_status};'>{t['Status']}</div>", unsafe_allow_html=True)
                 
             st.markdown("---")
             
@@ -588,53 +698,87 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                     with st.spinner("Atualizando tarefas na nuvem..."):
                         try:
                             client = get_sheets_client()
-                            sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").sheet1
+                            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
                             
-                            df_completo = pd.DataFrame(sheet.get_all_records(value_render_option="UNFORMATTED_VALUE"))
-                            
-                            if not df_completo.empty and "ID do Anúncio" in df_completo.columns:
-                                ids_afetados = set([t['ID do Anúncio'] for t in tarefas_selecionadas])
-                                headers = sheet.row_values(1)
+                            # 1. Tratar Anúncios e Tarefas Manuais
+                            tarefas_anuncios = [t for t in tarefas_selecionadas if t['Tipo'] != "💸 Despesa a Pagar"]
+                            if tarefas_anuncios:
+                                sheet_anuncios = doc.sheet1
+                                df_completo = pd.DataFrame(sheet_anuncios.get_all_records(value_render_option="UNFORMATTED_VALUE"))
                                 
-                                idx_col_data = headers.index("Última Atualização") + 1 if "Última Atualização" in headers else None
-                                idx_col_tar = headers.index("Tarefas Agendadas") + 1 if "Tarefas Agendadas" in headers else None
+                                if not df_completo.empty and "ID do Anúncio" in df_completo.columns:
+                                    ids_afetados = set([t['ID/Ref'] for t in tarefas_anuncios])
+                                    headers = sheet_anuncios.row_values(1)
+                                    
+                                    idx_col_data = headers.index("Última Atualização") + 1 if "Última Atualização" in headers else None
+                                    idx_col_tar = headers.index("Tarefas Agendadas") + 1 if "Tarefas Agendadas" in headers else None
+                                    
+                                    for id_an in ids_afetados:
+                                        mask = df_completo["ID do Anúncio"].astype(str).str.strip() == str(id_an)
+                                        if mask.any():
+                                            idx_row = df_completo[mask].index[0]
+                                            linha_real = int(idx_row) + 2
+                                            
+                                            row_data = df_completo.iloc[idx_row]
+                                            
+                                            atualizar_data = False
+                                            nova_data = row_data.get("Última Atualização", "")
+                                            
+                                            tarefas_json = str(row_data.get("Tarefas Agendadas", "[]"))
+                                            if not tarefas_json or tarefas_json.lower() == "nan": tarefas_json = "[]"
+                                            try:
+                                                lista_tarefas = json.loads(tarefas_json)
+                                            except:
+                                                lista_tarefas = []
+                                                
+                                            atualizar_tarefas = False
+                                            
+                                            # Procura as tarefas selecionadas correspondentes a este anúncio
+                                            for t in tarefas_anuncios:
+                                                if t['ID/Ref'] == id_an:
+                                                    if t['Tipo'] == "🚨 Alerta Automático":
+                                                        atualizar_data = True
+                                                        nova_data = datetime.now().strftime("%d/%m/%Y")
+                                                    elif t['Tipo'] == "📅 Tarefa Manual":
+                                                        lista_tarefas = [tar for tar in lista_tarefas if not (tar.get("descricao") == t['Tarefa / Descrição'] and tar.get("vencimento") == t['Data'])]
+                                                        atualizar_tarefas = True
+                                                        
+                                            # Envia as atualizações para o Google Sheets
+                                            if atualizar_data and idx_col_data:
+                                                sheet_anuncios.update_cell(linha_real, idx_col_data, nova_data)
+                                                
+                                            if atualizar_tarefas and idx_col_tar:
+                                                sheet_anuncios.update_cell(linha_real, idx_col_tar, json.dumps(lista_tarefas))
+
+                            # 2. Tratar Despesas a Pagar
+                            tarefas_despesas = [t for t in tarefas_selecionadas if t['Tipo'] == "💸 Despesa a Pagar"]
+                            if tarefas_despesas:
+                                sheet_despesas = doc.worksheet("Despesas")
+                                df_desp = pd.DataFrame(sheet_despesas.get_all_records(value_render_option="UNFORMATTED_VALUE"))
                                 
-                                for id_an in ids_afetados:
-                                    mask = df_completo["ID do Anúncio"].astype(str).str.strip() == str(id_an)
-                                    if mask.any():
-                                        idx_row = df_completo[mask].index[0]
-                                        linha_real = int(idx_row) + 2
+                                if not df_desp.empty:
+                                    headers_d = sheet_despesas.row_values(1)
+                                    if "Status" not in headers_d:
+                                        sheet_despesas.update_cell(1, len(headers_d)+1, "Status")
+                                        idx_col_status = len(headers_d) + 1
+                                    else:
+                                        idx_col_status = headers_d.index("Status") + 1
+                                    
+                                    df_desp["F_Match"] = df_desp["Nome do Fornecedor"].astype(str).str.strip().str.upper()
+                                    df_desp["NF_Match"] = df_desp["Número da Nota Fiscal"].apply(normalizar_nf)
+                                    df_desp["P_Match"] = df_desp["Parcela"].astype(str).str.strip()
+
+                                    for t in tarefas_despesas:
+                                        f_match = str(t['Fornecedor']).strip().upper()
+                                        nf_match = normalizar_nf(t['NF_Original'])
+                                        p_match = str(t['Parcela']).strip()
                                         
-                                        row_data = df_completo.iloc[idx_row]
+                                        mask = (df_desp["F_Match"] == f_match) & (df_desp["NF_Match"] == nf_match) & (df_desp["P_Match"] == p_match)
+                                        indices = df_desp[mask].index.tolist()
                                         
-                                        atualizar_data = False
-                                        nova_data = row_data.get("Última Atualização", "")
-                                        
-                                        tarefas_json = str(row_data.get("Tarefas Agendadas", "[]"))
-                                        if not tarefas_json or tarefas_json.lower() == "nan": tarefas_json = "[]"
-                                        try:
-                                            lista_tarefas = json.loads(tarefas_json)
-                                        except:
-                                            lista_tarefas = []
-                                            
-                                        atualizar_tarefas = False
-                                        
-                                        # Procura as tarefas selecionadas correspondentes a este anúncio
-                                        for t in tarefas_selecionadas:
-                                            if t['ID do Anúncio'] == id_an:
-                                                if t['Tipo'] == "🚨 Alerta Automático":
-                                                    atualizar_data = True
-                                                    nova_data = datetime.now().strftime("%d/%m/%Y")
-                                                elif t['Tipo'] == "📅 Tarefa Manual":
-                                                    lista_tarefas = [tar for tar in lista_tarefas if not (tar.get("descricao") == t['Tarefa / Descrição'] and tar.get("vencimento") == t['Data'])]
-                                                    atualizar_tarefas = True
-                                                    
-                                        # Envia as atualizações para o Google Sheets
-                                        if atualizar_data and idx_col_data:
-                                            sheet.update_cell(linha_real, idx_col_data, nova_data)
-                                            
-                                        if atualizar_tarefas and idx_col_tar:
-                                            sheet.update_cell(linha_real, idx_col_tar, json.dumps(lista_tarefas))
+                                        if indices:
+                                            linha_real = indices[0] + 2
+                                            sheet_despesas.update_cell(linha_real, idx_col_status, "Pago")
                                             
                             st.rerun() # Atualiza a tela limpando as tarefas concluídas
                         except Exception as e:
@@ -860,12 +1004,27 @@ if menu_selecionado == "Cadastro de Fornecedor":
         except: 
             st.info("Nenhum fornecedor registrado ainda.")
 # =====================================================================
-# MÓDULO 03: CADASTRO DE ANÚNCIOS
+# MÓDULO DE CADASTRO DE ANÚNCIOS
 # =====================================================================
 elif menu_selecionado == "Cadastro de Anúncios":
     import json
     
-    # --- Lógica trazida para dentro do módulo para evitar NameError ---
+    def atualizar_frete_automatico():
+        try:
+            peso_str = str(st.session_state.get("peso", "0")).replace(',', '.')
+            if not peso_str.strip(): peso_str = "0"
+            peso_kg = float(re.sub(r'[^\d\.]', '', peso_str))
+            
+            preco_orig = converter_valor(st.session_state.get("preco", "0"))
+            desc = float(st.session_state.get("desconto", 0.0))
+            preco_final = preco_orig * (1 - (desc / 100.0))
+            
+            novo_frete = calcular_frete_por_regras(peso_kg, preco_final)
+            if novo_frete > 0:
+                st.session_state.frete = f"{novo_frete:.2f}".replace('.', ',')
+        except:
+            pass
+
     def carregar_repositorio():
         try:
             client = get_sheets_client()
@@ -918,6 +1077,10 @@ elif menu_selecionado == "Cadastro de Anúncios":
         val = avaliar_expressao_matematica(st.session_state.custo)
         if val is not None: st.session_state.custo = f"{val:.2f}".replace('.', ',')
 
+    def processar_calculo_atacado(key_nome):
+        val = avaliar_expressao_matematica(st.session_state[key_nome])
+        if val is not None: st.session_state[key_nome] = f"{val:.2f}".replace('.', ',')
+
     def puxar_dados_produto_por_sku_trigger():
         sku_digitado = st.session_state.get("sku", "").strip()
         if sku_digitado:
@@ -928,6 +1091,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.medida = str(info_prod.get("Medida", ""))
                 st.session_state.peso = str(info_prod.get("Peso", ""))
                 st.session_state.fornecedor_produto = str(info_prod.get("Fornecedor", ""))
+                atualizar_frete_automatico()
 
     def resetar_campos():
         campos = ["id_anuncio", "cod_full", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "link_catalogo", "link_vendas", "link_promocoes", "medida", "peso", "fornecedor_produto"]
@@ -1177,8 +1341,9 @@ elif menu_selecionado == "Cadastro de Anúncios":
 
             st.subheader("💸 Dados da Venda")
             col_preco, col_desc, col_final = st.columns(3)
-            with col_preco: preco_original_str = st.text_input("Preço Original (R$)", key="preco")
-            with col_desc: porcentagem_desconto = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key="desconto")
+            # Acionador de frete dinâmico no preço e desconto
+            with col_preco: preco_original_str = st.text_input("Preço Original (R$)", key="preco", on_change=atualizar_frete_automatico)
+            with col_desc: porcentagem_desconto = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key="desconto", on_change=atualizar_frete_automatico)
             
             preco_original = converter_valor(preco_original_str)
             preco_final = preco_original * (1 - (porcentagem_desconto / 100))
@@ -1303,8 +1468,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 with c_pu_col:
                     if f"atac_pu_{i}" not in st.session_state:
                         st.session_state[f"atac_pu_{i}"] = "0,00"
-                    pu_atac_str = st.text_input("Preço Unitário (R$)", key=f"atac_pu_{i}")
-                    preco_unit_atac = converter_valor(pu_atac_str)
+                    pu_atac_str = st.text_input("Preço Unitário (R$)", key=f"atac_pu_{i}", on_change=processar_calculo_atacado, args=(f"atac_pu_{i}",))
+                    preco_unit_atac = converter_valor(st.session_state[f"atac_pu_{i}"])
                     
                 with c_unid:
                     unid_atac = st.number_input("Unidades", min_value=1, step=1, key=f"atac_unid_{i}")
@@ -1312,8 +1477,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 with c_frete:
                     if f"atac_frete_{i}" not in st.session_state:
                         st.session_state[f"atac_frete_{i}"] = "0,00"
-                    frete_atac_str = st.text_input("Frete (R$)", key=f"atac_frete_{i}")
-                    frete_atac = converter_valor(frete_atac_str)
+                    frete_atac_str = st.text_input("Frete (R$)", key=f"atac_frete_{i}", on_change=processar_calculo_atacado, args=(f"atac_frete_{i}",))
+                    frete_atac = converter_valor(st.session_state[f"atac_frete_{i}"])
                 
                 # --- CÁLCULOS DA ESTRATÉGIA ---
                 desc_atac = ((preco_original - preco_unit_atac) / preco_original * 100) if preco_original > 0 else 0.0
@@ -1633,7 +1798,7 @@ elif menu_selecionado == "Cadastro de Produto":
     if "desc_p" not in st.session_state: st.session_state.desc_p = ""
     if "historico_precos_p" not in st.session_state: st.session_state.historico_precos_p = []
     
-    # Novas variáveis para o Kit
+    # Variáveis para o Kit
     if "medida_kit" not in st.session_state: st.session_state.medida_kit = ""
     if "peso_kit" not in st.session_state: st.session_state.peso_kit = ""
 
@@ -1698,7 +1863,7 @@ elif menu_selecionado == "Cadastro de Produto":
                     return False
                     
                 sheet.update(range_name=f'A{idx+2}:M{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
-                cached_produtos_data.clear() 
+                st.cache_data.clear() 
                 return True
                 
         if not df.empty and "SKU" in df.columns and str(dados.get("SKU", "")).strip() in df["SKU"].values:
@@ -1706,7 +1871,7 @@ elif menu_selecionado == "Cadastro de Produto":
             return False
 
         sheet.append_row(valores_formatados, value_input_option="USER_ENTERED")
-        cached_produtos_data.clear()
+        st.cache_data.clear()
         return True
 
     def excluir_produto_banco(sku_para_excluir):
@@ -1738,8 +1903,7 @@ elif menu_selecionado == "Cadastro de Produto":
         except:
             pass 
 
-        cached_produtos_data.clear()
-        cached_kits_composicao.clear()
+        st.cache_data.clear()
         return True
 
     def processar_calculo_custo_produto():
@@ -1897,7 +2061,7 @@ elif menu_selecionado == "Cadastro de Produto":
                 if not lista_forns: 
                     lista_forns = ["⚠️ Cadastre um fornecedor primeiro no menu lateral"]
                 else:
-                    lista_forns = [""] + lista_forns  # Adiciona a opção em branco no topo da lista
+                    lista_forns = [""] + lista_forns
                     
                 forn_atual = st.session_state.get("forn_p", "")
                 idx_forn = lista_forns.index(forn_atual) if forn_atual in lista_forns else 0
@@ -2124,7 +2288,7 @@ elif menu_selecionado == "Cadastro de Produto":
                             
                             if linhas_composicao: sheet_kits.append_rows(linhas_composicao, value_input_option="USER_ENTERED")
                             
-                            cached_kits_composicao.clear()
+                            st.cache_data.clear()
                             st.session_state.sucesso_produto = f"✅ Kit '{sku_kit}' registado/atualizado com sucesso no banco de Produtos!"
                             st.session_state.limpar_produto = True
                             st.rerun() 
@@ -2183,21 +2347,23 @@ elif menu_selecionado == "Cadastro de Produto":
                     hide_index=True 
                 )
             else:
-                st.info("Nenhum produto cadastrado até o momento.")
+                st.info("Nenhum produto cadastrado até o momento.")                
 # =====================================================================
 # MÓDULO 5: DESPESAS A PAGAR 
 # =====================================================================
 elif menu_selecionado == "Despesas a pagar":
     
+    if "aba_despesas" not in st.session_state: st.session_state.aba_despesas = "📋 Títulos a Pagar (Pendentes)"
     if "limpar_despesas" not in st.session_state: st.session_state.limpar_despesas = False
     if "sucesso_despesas" not in st.session_state: st.session_state.sucesso_despesas = ""
     if "sucesso_pagamento" not in st.session_state: st.session_state.sucesso_pagamento = ""
     if "sucesso_historico" not in st.session_state: st.session_state.sucesso_historico = ""
+    if "msg_aviso_edicao" not in st.session_state: st.session_state.msg_aviso_edicao = ""
     if "num_parcelas_p" not in st.session_state: st.session_state.num_parcelas_p = 1
     if "exibir_grid_despesas" not in st.session_state: st.session_state.exibir_grid_despesas = False
     if "valor_total_despesa" not in st.session_state: st.session_state.valor_total_despesa = "0,00"
     if "nota_existente" not in st.session_state: st.session_state.nota_existente = False
-    if "pagando_id" not in st.session_state: st.session_state.pagando_id = None
+    if "parcela_em_foco" not in st.session_state: st.session_state.parcela_em_foco = ""
 
     if st.session_state.limpar_despesas:
         st.session_state.forn_p = ""
@@ -2206,9 +2372,10 @@ elif menu_selecionado == "Despesas a pagar":
         st.session_state.num_parcelas_p = 1
         st.session_state.exibir_grid_despesas = False
         st.session_state.nota_existente = False
-        st.session_state.pagando_id = None
+        st.session_state.parcela_em_foco = ""
         for k in list(st.session_state.keys()):
-            if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
+            if k.startswith("d_val_") or k.startswith("d_venc_") or k.startswith("d_status_") or k.startswith("d_forma_"):
+                del st.session_state[k]
         st.session_state.limpar_despesas = False
 
     def carregar_repositorio_despesas():
@@ -2328,11 +2495,14 @@ elif menu_selecionado == "Despesas a pagar":
                     st.session_state.exibir_grid_despesas = True
                     
                     for k in list(st.session_state.keys()):
-                        if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
+                        if k.startswith("d_val_") or k.startswith("d_venc_") or k.startswith("d_status_") or k.startswith("d_forma_"): 
+                            del st.session_state[k]
                         
                     for i, (_, row) in enumerate(df_enc.iterrows()):
                         st.session_state[f"d_val_{i}"] = formatar_moeda_ui(row["Valor da Parcela"])
                         st.session_state[f"d_venc_{i}"] = converter_data_sheets(row["Data de Vencimento"])
+                        st.session_state[f"d_status_{i}"] = str(row.get("Status", "Pendente"))
+                        st.session_state[f"d_forma_{i}"] = str(row.get("Forma de Pagamento", ""))
                 else:
                     st.session_state.nota_existente = False
                     st.session_state.exibir_grid_despesas = False
@@ -2343,6 +2513,36 @@ elif menu_selecionado == "Despesas a pagar":
             st.session_state.nota_existente = False
             st.session_state.exibir_grid_despesas = False
 
+    def preparar_edicao_despesa(fornecedor, nf, parcela):
+        st.session_state.forn_p = str(fornecedor)
+        st.session_state.nf_p = str(nf)
+        st.session_state.nota_existente = True
+        st.session_state.parcela_em_foco = str(parcela)
+        st.session_state.aba_despesas = "➕ Novo Lançamento / Edição"
+        
+        df_desp = carregar_repositorio_despesas()
+        if not df_desp.empty:
+            df_desp["F_Match"] = df_desp["Nome do Fornecedor"].astype(str).str.strip().str.upper()
+            df_desp["NF_Match"] = df_desp["Número da Nota Fiscal"].apply(normalizar_nf)
+            f_upper = str(fornecedor).strip().upper()
+            nf_norm = normalizar_nf(nf)
+            df_enc = df_desp[(df_desp["F_Match"] == f_upper) & (df_desp["NF_Match"] == nf_norm)]
+            
+            if not df_enc.empty:
+                st.session_state.valor_total_despesa = formatar_moeda_ui(df_enc.iloc[0]["Valor Total da Nota"])
+                st.session_state.num_parcelas_p = len(df_enc)
+                st.session_state.exibir_grid_despesas = True
+                for k in list(st.session_state.keys()):
+                    if k.startswith("d_val_") or k.startswith("d_venc_") or k.startswith("d_status_") or k.startswith("d_forma_"): 
+                        del st.session_state[k]
+                for i, (_, row) in enumerate(df_enc.iterrows()):
+                    st.session_state[f"d_val_{i}"] = formatar_moeda_ui(row["Valor da Parcela"])
+                    st.session_state[f"d_venc_{i}"] = converter_data_sheets(row["Data de Vencimento"])
+                    st.session_state[f"d_status_{i}"] = str(row.get("Status", "Pendente"))
+                    st.session_state[f"d_forma_{i}"] = str(row.get("Forma de Pagamento", ""))
+        
+        st.session_state.msg_aviso_edicao = f"✅ Dados da NF {nf} carregados e prontos para edição ou pagamento!"
+
     def processar_calculo_total_despesa():
         texto_atual = str(st.session_state.valor_total_despesa)
         if texto_atual.startswith("="): st.session_state.valor_total_despesa = formatar_moeda_ui(texto_atual.replace("=", ""))
@@ -2351,16 +2551,25 @@ elif menu_selecionado == "Despesas a pagar":
     with col_conteudo:
         st.title("Controle de Despesas a Pagar")
         
-        tab_lista, tab_lancamento, tab_historico = st.tabs(["📋 Títulos a Pagar (Pendentes)", "➕ Novo Lançamento / Edição", "📂 Histórico de Contas"])
+        aba_selecionada = st.radio(
+            "Navegação Despesas", 
+            ["📋 Títulos a Pagar (Pendentes)", "➕ Novo Lançamento / Edição", "📂 Histórico de Contas"], 
+            horizontal=True, 
+            label_visibility="collapsed",
+            key="aba_despesas"
+        )
         
         df_todas_geral = carregar_repositorio_despesas()
 
-        with tab_lista:
+        if aba_selecionada == "📋 Títulos a Pagar (Pendentes)":
             if st.session_state.sucesso_pagamento:
                 st.success(st.session_state.sucesso_pagamento)
                 st.session_state.sucesso_pagamento = ""
 
             st.write("Abaixo estão todas as contas pendentes organizadas pela data de vencimento.")
+            
+            c_busca_desp, _ = st.columns([3, 1])
+            busca_tabela_desp = c_busca_desp.text_input("🔍 Pesquisar por Fornecedor ou Nota Fiscal", placeholder="Digite para filtrar as despesas pendentes...")
             
             if not df_todas_geral.empty:
                 if "Status" not in df_todas_geral.columns: df_todas_geral["Status"] = "Pendente"
@@ -2371,53 +2580,47 @@ elif menu_selecionado == "Despesas a pagar":
                     df_pendentes["Data_Sort"] = pd.to_datetime(df_pendentes["Venc_Fmt"], format="%d/%m/%Y", errors="coerce")
                     df_pendentes = df_pendentes.sort_values(by="Data_Sort", ascending=True)
                     
-                    st.markdown("---")
-                    c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 3])
-                    c1.write("**Fornecedor**")
-                    c2.write("**Nota Fiscal**")
-                    c3.write("**Parcela**")
-                    c4.write("**Valor (R$)**")
-                    c5.write("**Vencimento**")
-                    c6.write("**Ação**")
-                    st.markdown("---")
-                    
-                    for idx, row in df_pendentes.iterrows():
-                        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 3])
-                        c1.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Nome do Fornecedor'])}</div>", unsafe_allow_html=True)
-                        c2.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Número da Nota Fiscal'])}</div>", unsafe_allow_html=True)
-                        c3.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Parcela'])}</div>", unsafe_allow_html=True)
-                        val_fmt = f"R$ {float(converter_valor(row['Valor da Parcela'])):.2f}".replace('.', ',')
-                        c4.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{val_fmt}</div>", unsafe_allow_html=True)
-                        c5.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Venc_Fmt'])}</div>", unsafe_allow_html=True)
+                    if busca_tabela_desp:
+                        mask = (
+                            df_pendentes["Nome do Fornecedor"].astype(str).str.contains(busca_tabela_desp, case=False, na=False) |
+                            df_pendentes["Número da Nota Fiscal"].astype(str).str.contains(busca_tabela_desp, case=False, na=False)
+                        )
+                        df_pendentes = df_pendentes[mask]
                         
-                        btn_key = f"pagar_{idx}_{row['Número da Nota Fiscal']}_{row['Parcela']}"
+                    if not df_pendentes.empty:
+                        st.markdown("---")
+                        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 1.5, 1.5])
+                        c1.write("**Fornecedor**")
+                        c2.write("**Nota Fiscal**")
+                        c3.write("**Parcela**")
+                        c4.write("**Valor (R$)**")
+                        c5.write("**Vencimento**")
+                        c6.write("**Ação**")
+                        st.markdown("---")
                         
-                        if st.session_state.pagando_id == btn_key:
-                            forma_escolhida = c6.selectbox("Forma de Pagamento", ["Pix", "Boleto", "Cartão"], key=f"sel_{btn_key}", label_visibility="collapsed")
+                        for idx, row in df_pendentes.iterrows():
+                            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 1.5, 1.5])
+                            c1.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Nome do Fornecedor'])}</div>", unsafe_allow_html=True)
+                            c2.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Número da Nota Fiscal'])}</div>", unsafe_allow_html=True)
+                            c3.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Parcela'])}</div>", unsafe_allow_html=True)
+                            val_fmt = f"R$ {float(converter_valor(row['Valor da Parcela'])):.2f}".replace('.', ',')
+                            c4.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{val_fmt}</div>", unsafe_allow_html=True)
+                            c5.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Venc_Fmt'])}</div>", unsafe_allow_html=True)
                             
-                            col_conf, col_canc = c6.columns(2)
-                            if col_conf.button("✔ Conf.", key=f"conf_{btn_key}", help="Confirmar Pagamento"):
-                                if marcar_como_pago(row["Nome do Fornecedor"], row["Número da Nota Fiscal"], row["Parcela"], forma_escolhida):
-                                    st.session_state.sucesso_pagamento = f"✅ Pagamento da parcela {row['Parcela']} via {forma_escolhida} confirmado!"
-                                    st.session_state.pagando_id = None
-                                    st.rerun()
-                                else:
-                                    st.error("Erro ao baixar.")
-                                    
-                            if col_canc.button("✖ Canc.", key=f"canc_{btn_key}", help="Cancelar Ação"):
-                                st.session_state.pagando_id = None
-                                st.rerun()
-                        else:
-                            if c6.button("✅ Pagar", key=btn_key):
-                                st.session_state.pagando_id = btn_key
-                                st.rerun()
+                            c6.button("✏️ Editar", key=f"edit_{idx}_{row['Número da Nota Fiscal']}_{row['Parcela']}", on_click=preparar_edicao_despesa, args=(row["Nome do Fornecedor"], row["Número da Nota Fiscal"], row["Parcela"]))
+                    else:
+                        st.info("Nenhuma despesa pendente encontrada para esta pesquisa.")
                 else:
                     st.info("🎉 Fantástico! Não há despesas pendentes no momento.")
             else:
                 st.info("Nenhuma despesa lançada ainda.")
 
-        with tab_lancamento:
+        elif aba_selecionada == "➕ Novo Lançamento / Edição":
             st.markdown("<br>", unsafe_allow_html=True)
+            if st.session_state.get("msg_aviso_edicao"):
+                st.success(st.session_state.msg_aviso_edicao)
+                st.session_state.msg_aviso_edicao = ""
+                
             if st.session_state.sucesso_despesas:
                 st.success(st.session_state.sucesso_despesas)
                 st.session_state.sucesso_despesas = ""
@@ -2432,9 +2635,9 @@ elif menu_selecionado == "Despesas a pagar":
             num_nf = c_nf.text_input("Número da Nota Fiscal", key="nf_p", on_change=checar_nota_cadastrada)
             
             if fornecedor.strip() and num_nf.strip():
-                if st.session_state.nota_existente:
+                if st.session_state.nota_existente and not st.session_state.get("msg_aviso_edicao"):
                     st.info("ℹ️ Esta nota fiscal já foi lançada no sistema! As informações e parcelas foram recuperadas abaixo.")
-                else:
+                elif not st.session_state.nota_existente:
                     st.success("✨ Novo lançamento. Siga para gerar parcelas.")
 
             c_val, c_parc = st.columns(2)
@@ -2449,14 +2652,16 @@ elif menu_selecionado == "Despesas a pagar":
                     if fornecedor.strip() and num_nf.strip() and v_total_nota > 0:
                         st.session_state.exibir_grid_despesas = True
                         for k in list(st.session_state.keys()):
-                            if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
+                            if k.startswith("d_val_") or k.startswith("d_venc_") or k.startswith("d_status_") or k.startswith("d_forma_"): 
+                                del st.session_state[k]
                     else: st.error("❌ Preencha todos os dados obrigatórios e certifique-se de que o valor é maior que zero.")
             else:
                 if st.button("🔄 Recalcular / Alterar Parcelas"):
                     if v_total_nota > 0:
                         st.session_state.exibir_grid_despesas = True
                         for k in list(st.session_state.keys()):
-                            if k.startswith("d_val_") or k.startswith("d_venc_"): del st.session_state[k]
+                            if k.startswith("d_val_") or k.startswith("d_venc_") or k.startswith("d_status_") or k.startswith("d_forma_"): 
+                                del st.session_state[k]
                     else: st.error("❌ Valor total inválido.")
                 
             if st.session_state.exibir_grid_despesas:
@@ -2465,7 +2670,7 @@ elif menu_selecionado == "Despesas a pagar":
                 lista_dados_salvamento = []
                 
                 for i in range(int(num_parcelas)):
-                    col_label, col_v_parc, col_venc = st.columns([1.5, 2.5, 2.5])
+                    col_label, col_v_parc, col_venc, col_status = st.columns([1.5, 2.5, 2.5, 2])
                     with col_label: st.markdown(f"<p style='margin-top:35px;'><b>Parcela {i+1} de {int(num_parcelas)}</b></p>", unsafe_allow_html=True)
                     with col_v_parc:
                         k_val = f"d_val_{i}"
@@ -2475,32 +2680,69 @@ elif menu_selecionado == "Despesas a pagar":
                         k_venc = f"d_venc_{i}"
                         if k_venc not in st.session_state: st.session_state[k_venc] = datetime.now().strftime("%d/%m/%Y")
                         venc_digitado = st.text_input(f"Vencimento {i+1} (DD/MM/AAAA)", key=k_venc)
+                    with col_status:
+                        k_status = f"d_status_{i}"
+                        if k_status not in st.session_state: st.session_state[k_status] = "Pendente"
+                        st.text_input("Status", key=k_status, disabled=True)
                     
                     lista_dados_salvamento.append({
                         "Fornecedor": fornecedor.strip(), "NF": num_nf.strip(), "Total": v_total_nota,
                         "Parcela": f"{i+1} de {int(num_parcelas)}", "Valor_Parc": val_digitado,
                         "Vencimento": venc_digitado, "Registro": datetime.now().strftime("%d/%m/%Y"),
-                        "Status": "Pendente",
-                        "Forma de Pagamento": "" 
+                        "Status": st.session_state[k_status],
+                        "Forma de Pagamento": st.session_state.get(f"d_forma_{i}", "")
                     })
                     
                 st.markdown("---")
-                if st.button("💾 Salvar Despesas"):
-                    try:
-                        for item in lista_dados_salvamento: item["Valor_Parc"] = converter_valor(item["Valor_Parc"])
-                        salvar_despesas_no_repositorio(lista_dados_salvamento, fornecedor, num_nf)
-                        st.session_state.sucesso_despesas = "✅ Despesas salvas com sucesso!"
-                        st.session_state.limpar_despesas = True
-                        st.rerun() 
-                    except Exception as e: st.error(f"❌ Erro ao salvar: {e}")
+                c_salvar, c_parc, c_forma, c_pagar, _ = st.columns([2.5, 2, 2, 2.5, 1])
+                
+                with c_salvar:
+                    if st.button("💾 Salvar Despesas"):
+                        try:
+                            for item in lista_dados_salvamento: item["Valor_Parc"] = converter_valor(item["Valor_Parc"])
+                            salvar_despesas_no_repositorio(lista_dados_salvamento, fornecedor, num_nf)
+                            st.session_state.sucesso_despesas = "✅ Despesas salvas com sucesso!"
+                            st.session_state.limpar_despesas = True
+                            st.rerun() 
+                        except Exception as e: st.error(f"❌ Erro ao salvar: {e}")
+                
+                if st.session_state.nota_existente:
+                    with c_parc:
+                        opcoes_parc = [f"{i+1} de {int(num_parcelas)}" for i in range(int(num_parcelas)) if st.session_state.get(f"d_status_{i}") != "Pago"]
+                        
+                        idx_default = 0
+                        if st.session_state.get("parcela_em_foco") in opcoes_parc:
+                            idx_default = opcoes_parc.index(st.session_state["parcela_em_foco"])
+                        
+                        if opcoes_parc:
+                            parc_a_pagar = st.selectbox("Parcela", opcoes_parc, index=idx_default, label_visibility="collapsed")
+                        else:
+                            parc_a_pagar = None
+                            st.markdown("<div style='margin-top: 5px; color: #198754; font-weight: bold;'>Tudo Pago ✅</div>", unsafe_allow_html=True)
+                    
+                    with c_forma:
+                        if parc_a_pagar:
+                            forma_pag = st.selectbox("Forma Pag.", ["Pix", "Boleto", "Cartão"], label_visibility="collapsed")
+                    
+                    with c_pagar:
+                        if parc_a_pagar:
+                            if st.button("✅ Pagar Despesa"):
+                                marcar_como_pago(fornecedor, num_nf, parc_a_pagar, forma_pag)
+                                st.session_state.sucesso_pagamento = f"✅ Pagamento da parcela {parc_a_pagar} registado!"
+                                st.session_state.aba_despesas = "📋 Títulos a Pagar (Pendentes)"
+                                st.session_state.parcela_em_foco = ""
+                                st.rerun()
 
-        with tab_historico:
+        elif aba_selecionada == "📂 Histórico de Contas":
             if st.session_state.sucesso_historico:
                 st.success(st.session_state.sucesso_historico)
                 st.session_state.sucesso_historico = ""
 
             st.write("Abaixo estão todas as contas já pagas e o seu respetivo histórico de liquidação.")
             
+            c_busca_hist, _ = st.columns([3, 1])
+            busca_tabela_hist = c_busca_hist.text_input("🔍 Pesquisar no Histórico (Fornecedor ou NF)", placeholder="Digite para filtrar...", key="busca_hist")
+
             if not df_todas_geral.empty and "Status" in df_todas_geral.columns:
                 df_pagas = df_todas_geral[df_todas_geral["Status"] == "Pago"].copy()
                 
@@ -2509,50 +2751,59 @@ elif menu_selecionado == "Despesas a pagar":
                     df_pagas["Data_Sort"] = pd.to_datetime(df_pagas["Venc_Fmt"], format="%d/%m/%Y", errors="coerce")
                     df_pagas = df_pagas.sort_values(by="Data_Sort", ascending=False)
                     
-                    st.markdown("---")
-                    c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 2])
-                    c1.write("**Fornecedor**")
-                    c2.write("**Nota Fiscal**")
-                    c3.write("**Parcela**")
-                    c4.write("**Valor (R$)**")
-                    c5.write("**Vencimento**")
-                    c6.write("**Forma Pag.**")
-                    st.markdown("---")
-                    
-                    for idx, row in df_pagas.iterrows():
-                        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 2])
-                        c1.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Nome do Fornecedor'])}</div>", unsafe_allow_html=True)
-                        c2.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Número da Nota Fiscal'])}</div>", unsafe_allow_html=True)
-                        c3.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Parcela'])}</div>", unsafe_allow_html=True)
-                        val_fmt = f"R$ {float(converter_valor(row['Valor da Parcela'])):.2f}".replace('.', ',')
-                        c4.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{val_fmt}</div>", unsafe_allow_html=True)
-                        c5.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Venc_Fmt'])}</div>", unsafe_allow_html=True)
-                        
-                        forma_atual = str(row.get("Forma de Pagamento", "")).strip()
-                        if not forma_atual or forma_atual == "nan" or forma_atual == "-":
-                            forma_atual = "-"
-                            
-                        opcoes_pag = ["-", "Pix", "Boleto", "Cartão"]
-                        if forma_atual not in opcoes_pag:
-                            opcoes_pag.append(forma_atual)
-                            
-                        idx_forma = opcoes_pag.index(forma_atual)
-                        select_key = f"edit_pag_{idx}_{row['Número da Nota Fiscal']}_{row['Parcela']}"
-                        
-                        c6.selectbox(
-                            "Forma Pag.", 
-                            options=opcoes_pag, 
-                            index=idx_forma, 
-                            key=select_key, 
-                            label_visibility="collapsed",
-                            on_change=atualizar_forma_pagamento,
-                            args=(row["Nome do Fornecedor"], row["Número da Nota Fiscal"], row["Parcela"], select_key)
+                    if busca_tabela_hist:
+                        mask_h = (
+                            df_pagas["Nome do Fornecedor"].astype(str).str.contains(busca_tabela_hist, case=False, na=False) |
+                            df_pagas["Número da Nota Fiscal"].astype(str).str.contains(busca_tabela_hist, case=False, na=False)
                         )
+                        df_pagas = df_pagas[mask_h]
+                        
+                    if not df_pagas.empty:
+                        st.markdown("---")
+                        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 2])
+                        c1.write("**Fornecedor**")
+                        c2.write("**Nota Fiscal**")
+                        c3.write("**Parcela**")
+                        c4.write("**Valor (R$)**")
+                        c5.write("**Vencimento**")
+                        c6.write("**Forma Pag.**")
+                        st.markdown("---")
+                        
+                        for idx, row in df_pagas.iterrows():
+                            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2, 1, 1.5, 2, 2])
+                            c1.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Nome do Fornecedor'])}</div>", unsafe_allow_html=True)
+                            c2.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Número da Nota Fiscal'])}</div>", unsafe_allow_html=True)
+                            c3.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Parcela'])}</div>", unsafe_allow_html=True)
+                            val_fmt = f"R$ {float(converter_valor(row['Valor da Parcela'])):.2f}".replace('.', ',')
+                            c4.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{val_fmt}</div>", unsafe_allow_html=True)
+                            c5.markdown(f"<div style='margin-top: 10px; color: #1E1E1E;'>{str(row['Venc_Fmt'])}</div>", unsafe_allow_html=True)
+                            
+                            forma_atual = str(row.get("Forma de Pagamento", "")).strip()
+                            if not forma_atual or forma_atual == "nan" or forma_atual == "-":
+                                forma_atual = "-"
+                                
+                            opcoes_pag = ["-", "Pix", "Boleto", "Cartão"]
+                            if forma_atual not in opcoes_pag:
+                                opcoes_pag.append(forma_atual)
+                                
+                            idx_forma = opcoes_pag.index(forma_atual)
+                            select_key = f"edit_pag_{idx}_{row['Número da Nota Fiscal']}_{row['Parcela']}"
+                            
+                            c6.selectbox(
+                                "Forma Pag.", 
+                                options=opcoes_pag, 
+                                index=idx_forma, 
+                                key=select_key, 
+                                label_visibility="collapsed",
+                                on_change=atualizar_forma_pagamento,
+                                args=(row["Nome do Fornecedor"], row["Número da Nota Fiscal"], row["Parcela"], select_key)
+                            )
+                    else:
+                        st.info("Nenhuma despesa paga encontrada para esta pesquisa.")
                 else:
                     st.info("Nenhuma conta foi marcada como paga até o momento.")
             else:
                 st.info("Nenhuma conta paga encontrada no histórico.")
-
 # =====================================================================
 # MÓDULO 6: CURVA ABC MELI
 # =====================================================================
@@ -2899,6 +3150,7 @@ elif menu_selecionado == "Pós Venda":
         return re.sub(r'\D', '', str(valor).split('.')[0])
         
     if "num_venda" not in st.session_state: st.session_state.num_venda = ""
+    if "nf_oc" not in st.session_state: st.session_state.nf_oc = ""
     if "id_an_oc" not in st.session_state: st.session_state.id_an_oc = ""
     if "sku_oc" not in st.session_state: st.session_state.sku_oc = ""
     if "custo_oc" not in st.session_state: st.session_state.custo_oc = "0,00"
@@ -2907,8 +3159,9 @@ elif menu_selecionado == "Pós Venda":
     if "status_oc" not in st.session_state: st.session_state.status_oc = "Aberto"
     if "resolucao_oc" not in st.session_state: st.session_state.resolucao_oc = ""
 
-    def preparar_edicao_ocorrencia(venda, id_an, sku, custo, rep, desc, status, res):
+    def preparar_edicao_ocorrencia(venda, nf, id_an, sku, custo, rep, desc, status, res):
         st.session_state.num_venda = str(venda)
+        st.session_state.nf_oc = str(nf)
         st.session_state.id_an_oc = str(id_an)
         st.session_state.sku_oc = str(sku)
         st.session_state.custo_oc = str(custo)
@@ -2925,6 +3178,7 @@ elif menu_selecionado == "Pós Venda":
                 df_oc["Número da Venda"] = df_oc["Número da Venda"].apply(limpar_num_venda)
                 res = df_oc[df_oc["Número da Venda"] == venda_busca]
                 if not res.empty:
+                    st.session_state.nf_oc = str(res.iloc[0].get("Nº NF", ""))
                     st.session_state.id_an_oc = str(res.iloc[0].get("ID do Anúncio", ""))
                     st.session_state.sku_oc = str(res.iloc[0].get("SKU do Produto", ""))
                     st.session_state.custo_oc = formatar_moeda_ui(res.iloc[0].get("Custo da Ocorrência", 0))
@@ -2933,6 +3187,7 @@ elif menu_selecionado == "Pós Venda":
                     st.session_state.status_oc = str(res.iloc[0].get("Status", "Aberto"))
                     st.session_state.resolucao_oc = str(res.iloc[0].get("Resolução", ""))
                 else:
+                    st.session_state.nf_oc = ""
                     st.session_state.id_an_oc = ""
                     st.session_state.sku_oc = ""
                     st.session_state.custo_oc = "0,00"
@@ -2941,6 +3196,7 @@ elif menu_selecionado == "Pós Venda":
                     st.session_state.status_oc = "Aberto"
                     st.session_state.resolucao_oc = ""
         else:
+            st.session_state.nf_oc = ""
             st.session_state.id_an_oc = ""
             st.session_state.sku_oc = ""
             st.session_state.custo_oc = "0,00"
@@ -2998,9 +3254,11 @@ elif menu_selecionado == "Pós Venda":
             st.markdown("<br>", unsafe_allow_html=True)
             st.subheader("Nova Ocorrência")
             
-            c1, c2, c3 = st.columns(3)
+            c1, c_nf, c2, c3 = st.columns([1.5, 1, 1.5, 1.5])
             with c1:
                 num_venda = st.text_input("Número da Venda", key="num_venda", on_change=puxar_dados_ocorrencia_trigger)
+            with c_nf:
+                nf_oc = st.text_input("Nº NF", key="nf_oc")
             with c2:
                 id_an_oc = st.text_input("ID do Anúncio", key="id_an_oc", on_change=puxar_sku_por_anuncio_trigger)
             with c3:
@@ -3035,7 +3293,7 @@ elif menu_selecionado == "Pós Venda":
             with col_btn3:
                 btn_limpar = st.button("🧹 Limpar Campos")
             
-            campos_limpeza = ["num_venda", "id_an_oc", "sku_oc", "custo_oc", "reputacao_oc", "desc_oc", "status_oc", "resolucao_oc"]
+            campos_limpeza = ["num_venda", "nf_oc", "id_an_oc", "sku_oc", "custo_oc", "reputacao_oc", "desc_oc", "status_oc", "resolucao_oc"]
             
             if btn_limpar:
                 for k in campos_limpeza:
@@ -3049,18 +3307,18 @@ elif menu_selecionado == "Pós Venda":
                         client = get_sheets_client()
                         doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
                         
-                        header_esperado = ["Número da Venda", "ID do Anúncio", "Descrição da Ocorrência", "Data da Atualização", "Status", "Resolução", "SKU do Produto", "Custo da Ocorrência", "Afetou Reputação"]
+                        header_esperado = ["Número da Venda", "ID do Anúncio", "Descrição da Ocorrência", "Data da Atualização", "Status", "Resolução", "SKU do Produto", "Custo da Ocorrência", "Afetou Reputação", "Nº NF"]
                         
                         try:
                             sheet_oc = doc.worksheet("Pos_Venda")
-                            if sheet_oc.col_count < 9:
-                                sheet_oc.add_cols(9 - sheet_oc.col_count)
+                            if sheet_oc.col_count < 10:
+                                sheet_oc.add_cols(10 - sheet_oc.col_count)
                             
                             header_atual = sheet_oc.row_values(1)
-                            if header_atual != header_esperado:
-                                sheet_oc.update(range_name='A1:I1', values=[header_esperado], value_input_option="USER_ENTERED")
+                            if "Nº NF" not in header_atual:
+                                sheet_oc.update_cell(1, 10, "Nº NF")
                         except:
-                            sheet_oc = doc.add_worksheet(title="Pos_Venda", rows="1000", cols="9")
+                            sheet_oc = doc.add_worksheet(title="Pos_Venda", rows="1000", cols="10")
                             sheet_oc.append_row(header_esperado)
                         
                         df_oc = cached_ocorrencias()
@@ -3076,14 +3334,15 @@ elif menu_selecionado == "Pós Venda":
                             resolucao_oc.strip(),
                             sku_oc.strip(),
                             f"{custo_oc:.2f}".replace('.', ','),
-                            reputacao_oc
+                            reputacao_oc,
+                            nf_oc.strip()
                         ]
                         
                         if df_oc is not None and not df_oc.empty and "Número da Venda" in df_oc.columns:
                             df_oc["Venda_Match"] = df_oc["Número da Venda"].apply(limpar_num_venda)
                             if num_limpo in df_oc["Venda_Match"].values:
                                 idx = df_oc[df_oc["Venda_Match"] == num_limpo].index[0]
-                                sheet_oc.update(range_name=f'A{idx+2}:I{idx+2}', values=[valores_oc], value_input_option="USER_ENTERED")
+                                sheet_oc.update(range_name=f'A{idx+2}:J{idx+2}', values=[valores_oc], value_input_option="USER_ENTERED")
                                 cached_ocorrencias.clear()
                                 st.session_state.sucesso_ocorrencia = f"✅ Ocorrência para a venda '{num_limpo}' atualizada com sucesso!"
                                 for k in campos_limpeza:
@@ -3126,9 +3385,9 @@ elif menu_selecionado == "Pós Venda":
                 df_ativas = df_oc[df_oc["Status"] != "Encerrado"].copy()
                 if not df_ativas.empty:
                     st.markdown("---")
-                    # Colunas reajustadas para suportar apenas 1 botão
-                    c_v, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5])
+                    c_v, c_nf_col, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.2, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5])
                     c_v.write("**Venda**")
+                    c_nf_col.write("**Nº NF**")
                     c_an.write("**Anúncio**")
                     c_sku.write("**SKU**")
                     c_dt.write("**Atualização**")
@@ -3138,25 +3397,28 @@ elif menu_selecionado == "Pós Venda":
                     st.markdown("---")
                     
                     for idx, row in df_ativas.iterrows():
-                        c_v, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5])
+                        c_v, c_nf_col, c_an, c_sku, c_dt, c_st, c_cus, c_ac = st.columns([1.5, 1.2, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5])
                         
                         venda_num = limpar_num_venda(row.get('Número da Venda', ''))
                         custo_val = converter_valor(row.get('Custo da Ocorrência', 0))
+                        nf_val = str(row.get("Nº NF", ""))
+                        if nf_val.lower() == "nan": nf_val = ""
                         
                         c_v.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{venda_num}</div>", unsafe_allow_html=True)
+                        c_nf_col.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{nf_val}</div>", unsafe_allow_html=True)
                         c_an.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{str(row.get('ID do Anúncio', ''))}</div>", unsafe_allow_html=True)
                         c_sku.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{str(row.get('SKU do Produto', ''))}</div>", unsafe_allow_html=True)
                         c_dt.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{formatar_data_hora(row.get('Data da Atualização', ''))}</div>", unsafe_allow_html=True)
                         c_st.markdown(f"<div style='margin-top: 5px; font-weight: bold; color: #DA1984;'>{str(row.get('Status', ''))}</div>", unsafe_allow_html=True)
                         c_cus.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>R$ {custo_val:.2f}</div>".replace('.', ','), unsafe_allow_html=True)
                         
-                        # Apenas o botão Alterar ficou na coluna de ação
                         c_ac.button(
                             "✏️ Alterar", 
                             key=f"alterar_{idx}",
                             on_click=preparar_edicao_ocorrencia,
                             args=(
                                 venda_num,
+                                nf_val,
                                 str(row.get("ID do Anúncio", "")),
                                 str(row.get("SKU do Produto", "")),
                                 formatar_moeda_ui(custo_val),
@@ -3180,6 +3442,12 @@ elif menu_selecionado == "Pós Venda":
                 if not df_hist.empty:
                     df_hist["Número da Venda"] = df_hist["Número da Venda"].apply(limpar_num_venda)
                     df_hist["Data da Atualização"] = df_hist["Data da Atualização"].apply(formatar_data_hora)
+                    
+                    # Organizar colunas para mostrar a NF ao lado da Venda
+                    cols = df_hist.columns.tolist()
+                    if "Nº NF" in cols:
+                        cols.insert(1, cols.pop(cols.index("Nº NF")))
+                        df_hist = df_hist[cols]
                     
                     st.dataframe(
                         df_hist.style.set_properties(**{
