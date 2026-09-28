@@ -290,6 +290,7 @@ def avaliar_expressao_matematica(texto):
 # =====================================================================
 # CACHE DE DADOS
 # =====================================================================
+@st.cache_data(ttl=15)
 def carregar_repositorio_anuncios():
     try:
         client = get_sheets_client()
@@ -298,7 +299,7 @@ def carregar_repositorio_anuncios():
         if not data: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo", "Link de Vendas", "Link de Promoções", "Código do Full"])
         return pd.DataFrame(data)
     except: return pd.DataFrame(columns=["ID do Anúncio", "SKU", "Produto", "Título", "Custo", "Preço Original", "Desconto", "Frete", "Comissão", "Taxa Fixa", "Estorno", "TACOS", "Imposto", "Última Atualização", "Link do Anúncio", "Estrategias_Atacado", "Historico_Alteracoes", "Otimizacoes", "Tarefas Agendadas", "Link do Catálogo", "Link de Vendas", "Link de Promoções", "Código do Full"])
-@st.cache_data(ttl=15)
+
 @st.cache_data(ttl=3600)
 def cached_tabela_frete():
     try:
@@ -359,6 +360,8 @@ def calcular_frete_por_regras(peso_kg, preco_final):
         return float(df_frete.at[idx, col])
     except:
         return 0.0
+
+@st.cache_data(ttl=15)
 def cached_produtos_data():
     try:
         client = get_sheets_client()
@@ -472,9 +475,9 @@ def buscar_produto_por_sku(sku_busca):
     if not sku_busca: return None
     df_p = cached_produtos_data()
     if df_p is not None and not df_p.empty and "SKU" in df_p.columns:
-        df_p["SKU"] = df_p["SKU"].astype(str).str.strip()
-        sku_limpo = str(sku_busca).strip()
-        res = df_p[df_p["SKU"] == sku_limpo]
+        sku_limpo = str(sku_busca).strip().upper()
+        mask = df_p["SKU"].astype(str).str.strip().str.upper() == sku_limpo
+        res = df_p[mask]
         
         if not res.empty:
             info_prod = res.iloc[0].to_dict()
@@ -482,16 +485,16 @@ def buscar_produto_por_sku(sku_busca):
             # Recálculo de Kits em Tempo Real
             df_kits = cached_kits_composicao()
             if df_kits is not None and not df_kits.empty and "SKU do Kit" in df_kits.columns:
-                df_kits["SKU do Kit"] = df_kits["SKU do Kit"].astype(str).str.strip()
-                componentes = df_kits[df_kits["SKU do Kit"] == sku_limpo]
+                mask_k = df_kits["SKU do Kit"].astype(str).str.strip().str.upper() == sku_limpo
+                componentes = df_kits[mask_k]
                 
                 if not componentes.empty:
                     custo_recalculado = 0.0
                     for _, row_comp in componentes.iterrows():
-                        sku_c = str(row_comp.get("SKU Componente", "")).strip()
+                        sku_c = str(row_comp.get("SKU Componente", "")).strip().upper()
                         qtd_c = converter_valor(row_comp.get("Qtd", 1))
                         
-                        comp_res = df_p[df_p["SKU"] == sku_c]
+                        comp_res = df_p[df_p["SKU"].astype(str).str.strip().str.upper() == sku_c]
                         if not comp_res.empty:
                             custo_unit_atual = converter_valor(comp_res.iloc[0].get("Custo", 0))
                             custo_recalculado += custo_unit_atual * qtd_c
@@ -535,21 +538,6 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
         with st.spinner("Buscando dados na nuvem..."):
             repo_dados = carregar_repositorio_alertas()
             repo_despesas = carregar_despesas_pendentes()
-            
-        # ==========================================================
-        # CAMPO DE PESQUISA E FILTRO
-        # ==========================================================
-        opcoes_pesquisa = [""]
-        if not repo_dados.empty and "ID do Anúncio" in repo_dados.columns:
-            for _, row in repo_dados.iterrows():
-                c = str(row.get("ID do Anúncio", "")).strip()
-                n = str(row.get("Título", "")).strip()
-                if c and c.lower() != "nan":
-                    opcoes_pesquisa.append(f"{c} | {n}")
-                    
-        st.markdown("---")
-        filtro_selecionado = st.selectbox("🔍 Pesquisar Tarefas por Anúncio (MLB ou Título)", options=opcoes_pesquisa)
-        id_filtro = filtro_selecionado.split(" | ")[0].strip() if filtro_selecionado else ""
         
         # ==========================================================
         # PROCESSAMENTO UNIFICADO DAS TAREFAS
@@ -565,10 +553,6 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                 
                 # Proteção: Ignora linhas em branco
                 if not id_an_lista or id_an_lista.lower() == "nan":
-                    continue
-                    
-                # Filtra pelo anúncio selecionado na caixa de pesquisa (se houver)
-                if id_filtro and id_an_lista != id_filtro:
                     continue
                     
                 # 1. Varredura Automática (> 7 dias sem atualização)
@@ -617,9 +601,7 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                         pass
         
         # 3. Varredura de Despesas (Vencidas ou Vencem Hoje)
-        # O filtro de anúncio não se aplica a despesas financeiras (pois não têm MLB). 
-        # Mostramos as despesas a menos que o utilizador esteja especificamente a filtrar por um anúncio.
-        if not id_filtro and not repo_despesas.empty and "Status" in repo_despesas.columns:
+        if not repo_despesas.empty and "Status" in repo_despesas.columns:
             for idx, row in repo_despesas.iterrows():
                 if str(row.get("Status", "")).strip().lower() != "pago":
                     venc_str = converter_data_sheets(row.get("Data de Vencimento", ""))
@@ -627,7 +609,6 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
                         try:
                             data_venc = datetime.strptime(venc_str.strip(), "%d/%m/%Y").date()
                             
-                            # Condição: Vence hoje ou já está atrasada
                             if data_venc <= hoje_date:
                                 dias_atraso = (hoje_date - data_venc).days
                                 se_hoje = dias_atraso == 0
@@ -660,136 +641,165 @@ if menu_selecionado == "Tarefas Pendentes e Alertas":
             # Ordena pela data mais antiga (mais urgente) primeiro
             todas_tarefas.sort(key=lambda x: x['Data_Sort'])
             
-            st.markdown("---")
-            c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.5, 2.5, 1.5, 2.5, 1, 1.5])
-            c0.write("**Ok**")
-            c1.write("**ID / Ref.**")
-            c2.write("**Título / Fornecedor**")
-            c3.write("**Tipo**")
-            c4.write("**Descrição**")
-            c5.write("**Data**")
-            c6.write("**Status**")
-            st.markdown("---")
+            # ==========================================================
+            # FILTROS AVANÇADOS DAS COLUNAS
+            # ==========================================================
+            st.markdown("🔍 **Filtros da Tabela:**")
+            tipos_disp = sorted(list(set([t['Tipo'] for t in todas_tarefas])))
             
-            chaves_tarefas = []
+            c_f1, c_f2, c_f3 = st.columns([1.5, 1.5, 2])
+            with c_f1:
+                f_tipo = st.multiselect("Tipo de Tarefa", options=tipos_disp, placeholder="Todos os tipos")
+            with c_f2:
+                f_status = st.selectbox("Status", options=["Todos", "Atrasados / Hoje", "Pendentes (Futuro)"])
+            with c_f3:
+                f_texto = st.text_input("Buscar Fornecedor, ID ou Título", placeholder="Digite para filtrar...")
+                
+            # Aplicação dos Filtros
+            tarefas_filtradas = todas_tarefas
             
-            for i, t in enumerate(todas_tarefas):
+            if f_tipo:
+                tarefas_filtradas = [t for t in tarefas_filtradas if t['Tipo'] in f_tipo]
+                
+            if f_status == "Atrasados / Hoje":
+                tarefas_filtradas = [t for t in tarefas_filtradas if "Atrasado" in t['Status'] or "HOJE" in t['Status']]
+            elif f_status == "Pendentes (Futuro)":
+                tarefas_filtradas = [t for t in tarefas_filtradas if "Pendente" in t['Status']]
+                
+            if f_texto:
+                busca = f_texto.lower()
+                tarefas_filtradas = [t for t in tarefas_filtradas if busca in t['ID/Ref'].lower() or busca in t['Título/Fornecedor'].lower() or busca in t['Tarefa / Descrição'].lower()]
+            
+            if tarefas_filtradas:
+                st.markdown("---")
                 c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.5, 2.5, 1.5, 2.5, 1, 1.5])
-                chave = f"chk_tar_{i}_{t['ID/Ref']}"
-                chaves_tarefas.append((chave, t))
+                c0.write("**Ok**")
+                c1.write("**ID / Ref.**")
+                c2.write("**Título / Fornecedor**")
+                c3.write("**Tipo**")
+                c4.write("**Descrição**")
+                c5.write("**Data**")
+                c6.write("**Status**")
+                st.markdown("---")
                 
-                with c0:
-                    st.checkbox("", key=chave, label_visibility="collapsed")
-                c1.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['ID/Ref']}</div>", unsafe_allow_html=True)
-                c2.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Título/Fornecedor']}</div>", unsafe_allow_html=True)
-                c3.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Tipo']}</div>", unsafe_allow_html=True)
-                c4.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Tarefa / Descrição']}</div>", unsafe_allow_html=True)
-                c5.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Data']}</div>", unsafe_allow_html=True)
+                chaves_tarefas = []
                 
-                cor_status = "#DA1984" if "Atrasado" in t['Status'] or "HOJE" in t['Status'] else "#1E1E1E"
-                c6.markdown(f"<div style='margin-top: 5px; font-weight: bold; color: {cor_status};'>{t['Status']}</div>", unsafe_allow_html=True)
+                for i, t in enumerate(tarefas_filtradas):
+                    c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.5, 2.5, 1.5, 2.5, 1, 1.5])
+                    chave = f"chk_tar_{i}_{t['ID/Ref']}"
+                    chaves_tarefas.append((chave, t))
+                    
+                    with c0:
+                        st.checkbox("", key=chave, label_visibility="collapsed")
+                    c1.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['ID/Ref']}</div>", unsafe_allow_html=True)
+                    c2.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Título/Fornecedor']}</div>", unsafe_allow_html=True)
+                    c3.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Tipo']}</div>", unsafe_allow_html=True)
+                    c4.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Tarefa / Descrição']}</div>", unsafe_allow_html=True)
+                    c5.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{t['Data']}</div>", unsafe_allow_html=True)
+                    
+                    cor_status = "#DA1984" if "Atrasado" in t['Status'] or "HOJE" in t['Status'] else "#1E1E1E"
+                    c6.markdown(f"<div style='margin-top: 5px; font-weight: bold; color: {cor_status};'>{t['Status']}</div>", unsafe_allow_html=True)
+                    
+                st.markdown("---")
                 
-            st.markdown("---")
-            
-            if st.button("✅ Concluir Tarefas Selecionadas"):
-                tarefas_selecionadas = [t for chave, t in chaves_tarefas if st.session_state.get(chave, False)]
-                
-                if tarefas_selecionadas:
-                    with st.spinner("Atualizando tarefas na nuvem..."):
-                        try:
-                            client = get_sheets_client()
-                            doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
-                            
-                            # 1. Tratar Anúncios e Tarefas Manuais
-                            tarefas_anuncios = [t for t in tarefas_selecionadas if t['Tipo'] != "💸 Despesa a Pagar"]
-                            if tarefas_anuncios:
-                                sheet_anuncios = doc.sheet1
-                                df_completo = pd.DataFrame(sheet_anuncios.get_all_records(value_render_option="UNFORMATTED_VALUE"))
+                if st.button("✅ Concluir Tarefas Selecionadas"):
+                    tarefas_selecionadas = [t for chave, t in chaves_tarefas if st.session_state.get(chave, False)]
+                    
+                    if tarefas_selecionadas:
+                        with st.spinner("Atualizando tarefas na nuvem..."):
+                            try:
+                                client = get_sheets_client()
+                                doc = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0")
                                 
-                                if not df_completo.empty and "ID do Anúncio" in df_completo.columns:
-                                    ids_afetados = set([t['ID/Ref'] for t in tarefas_anuncios])
-                                    headers = sheet_anuncios.row_values(1)
+                                # 1. Tratar Anúncios e Tarefas Manuais
+                                tarefas_anuncios = [t for t in tarefas_selecionadas if t['Tipo'] != "💸 Despesa a Pagar"]
+                                if tarefas_anuncios:
+                                    sheet_anuncios = doc.sheet1
+                                    df_completo = pd.DataFrame(sheet_anuncios.get_all_records(value_render_option="UNFORMATTED_VALUE"))
                                     
-                                    idx_col_data = headers.index("Última Atualização") + 1 if "Última Atualização" in headers else None
-                                    idx_col_tar = headers.index("Tarefas Agendadas") + 1 if "Tarefas Agendadas" in headers else None
-                                    
-                                    for id_an in ids_afetados:
-                                        mask = df_completo["ID do Anúncio"].astype(str).str.strip() == str(id_an)
-                                        if mask.any():
-                                            idx_row = df_completo[mask].index[0]
-                                            linha_real = int(idx_row) + 2
-                                            
-                                            row_data = df_completo.iloc[idx_row]
-                                            
-                                            atualizar_data = False
-                                            nova_data = row_data.get("Última Atualização", "")
-                                            
-                                            tarefas_json = str(row_data.get("Tarefas Agendadas", "[]"))
-                                            if not tarefas_json or tarefas_json.lower() == "nan": tarefas_json = "[]"
-                                            try:
-                                                lista_tarefas = json.loads(tarefas_json)
-                                            except:
-                                                lista_tarefas = []
-                                                
-                                            atualizar_tarefas = False
-                                            
-                                            # Procura as tarefas selecionadas correspondentes a este anúncio
-                                            for t in tarefas_anuncios:
-                                                if t['ID/Ref'] == id_an:
-                                                    if t['Tipo'] == "🚨 Alerta Automático":
-                                                        atualizar_data = True
-                                                        nova_data = datetime.now().strftime("%d/%m/%Y")
-                                                    elif t['Tipo'] == "📅 Tarefa Manual":
-                                                        lista_tarefas = [tar for tar in lista_tarefas if not (tar.get("descricao") == t['Tarefa / Descrição'] and tar.get("vencimento") == t['Data'])]
-                                                        atualizar_tarefas = True
-                                                        
-                                            # Envia as atualizações para o Google Sheets
-                                            if atualizar_data and idx_col_data:
-                                                sheet_anuncios.update_cell(linha_real, idx_col_data, nova_data)
-                                                
-                                            if atualizar_tarefas and idx_col_tar:
-                                                sheet_anuncios.update_cell(linha_real, idx_col_tar, json.dumps(lista_tarefas))
-
-                            # 2. Tratar Despesas a Pagar
-                            tarefas_despesas = [t for t in tarefas_selecionadas if t['Tipo'] == "💸 Despesa a Pagar"]
-                            if tarefas_despesas:
-                                sheet_despesas = doc.worksheet("Despesas")
-                                df_desp = pd.DataFrame(sheet_despesas.get_all_records(value_render_option="UNFORMATTED_VALUE"))
-                                
-                                if not df_desp.empty:
-                                    headers_d = sheet_despesas.row_values(1)
-                                    if "Status" not in headers_d:
-                                        sheet_despesas.update_cell(1, len(headers_d)+1, "Status")
-                                        idx_col_status = len(headers_d) + 1
-                                    else:
-                                        idx_col_status = headers_d.index("Status") + 1
-                                    
-                                    df_desp["F_Match"] = df_desp["Nome do Fornecedor"].astype(str).str.strip().str.upper()
-                                    df_desp["NF_Match"] = df_desp["Número da Nota Fiscal"].apply(normalizar_nf)
-                                    df_desp["P_Match"] = df_desp["Parcela"].astype(str).str.strip()
-
-                                    for t in tarefas_despesas:
-                                        f_match = str(t['Fornecedor']).strip().upper()
-                                        nf_match = normalizar_nf(t['NF_Original'])
-                                        p_match = str(t['Parcela']).strip()
+                                    if not df_completo.empty and "ID do Anúncio" in df_completo.columns:
+                                        ids_afetados = set([t['ID/Ref'] for t in tarefas_anuncios])
+                                        headers = sheet_anuncios.row_values(1)
                                         
-                                        mask = (df_desp["F_Match"] == f_match) & (df_desp["NF_Match"] == nf_match) & (df_desp["P_Match"] == p_match)
-                                        indices = df_desp[mask].index.tolist()
+                                        idx_col_data = headers.index("Última Atualização") + 1 if "Última Atualização" in headers else None
+                                        idx_col_tar = headers.index("Tarefas Agendadas") + 1 if "Tarefas Agendadas" in headers else None
                                         
-                                        if indices:
-                                            linha_real = indices[0] + 2
-                                            sheet_despesas.update_cell(linha_real, idx_col_status, "Pago")
+                                        for id_an in ids_afetados:
+                                            mask = df_completo["ID do Anúncio"].astype(str).str.strip() == str(id_an)
+                                            if mask.any():
+                                                idx_row = df_completo[mask].index[0]
+                                                linha_real = int(idx_row) + 2
+                                                
+                                                row_data = df_completo.iloc[idx_row]
+                                                
+                                                atualizar_data = False
+                                                nova_data = row_data.get("Última Atualização", "")
+                                                
+                                                tarefas_json = str(row_data.get("Tarefas Agendadas", "[]"))
+                                                if not tarefas_json or tarefas_json.lower() == "nan": tarefas_json = "[]"
+                                                try:
+                                                    lista_tarefas = json.loads(tarefas_json)
+                                                except:
+                                                    lista_tarefas = []
+                                                    
+                                                atualizar_tarefas = False
+                                                
+                                                # Procura as tarefas selecionadas correspondentes a este anúncio
+                                                for t in tarefas_anuncios:
+                                                    if t['ID/Ref'] == id_an:
+                                                        if t['Tipo'] == "🚨 Alerta Automático":
+                                                            atualizar_data = True
+                                                            nova_data = datetime.now().strftime("%d/%m/%Y")
+                                                        elif t['Tipo'] == "📅 Tarefa Manual":
+                                                            lista_tarefas = [tar for tar in lista_tarefas if not (tar.get("descricao") == t['Tarefa / Descrição'] and tar.get("vencimento") == t['Data'])]
+                                                            atualizar_tarefas = True
+                                                            
+                                                # Envia as atualizações para o Google Sheets
+                                                if atualizar_data and idx_col_data:
+                                                    sheet_anuncios.update_cell(linha_real, idx_col_data, nova_data)
+                                                    
+                                                if atualizar_tarefas and idx_col_tar:
+                                                    sheet_anuncios.update_cell(linha_real, idx_col_tar, json.dumps(lista_tarefas))
+    
+                                # 2. Tratar Despesas a Pagar
+                                tarefas_despesas = [t for t in tarefas_selecionadas if t['Tipo'] == "💸 Despesa a Pagar"]
+                                if tarefas_despesas:
+                                    sheet_despesas = doc.worksheet("Despesas")
+                                    df_desp = pd.DataFrame(sheet_despesas.get_all_records(value_render_option="UNFORMATTED_VALUE"))
+                                    
+                                    if not df_desp.empty:
+                                        headers_d = sheet_despesas.row_values(1)
+                                        if "Status" not in headers_d:
+                                            sheet_despesas.update_cell(1, len(headers_d)+1, "Status")
+                                            idx_col_status = len(headers_d) + 1
+                                        else:
+                                            idx_col_status = headers_d.index("Status") + 1
+                                        
+                                        df_desp["F_Match"] = df_desp["Nome do Fornecedor"].astype(str).str.strip().str.upper()
+                                        df_desp["NF_Match"] = df_desp["Número da Nota Fiscal"].apply(normalizar_nf)
+                                        df_desp["P_Match"] = df_desp["Parcela"].astype(str).str.strip()
+    
+                                        for t in tarefas_despesas:
+                                            f_match = str(t['Fornecedor']).strip().upper()
+                                            nf_match = normalizar_nf(t['NF_Original'])
+                                            p_match = str(t['Parcela']).strip()
                                             
-                            st.rerun() # Atualiza a tela limpando as tarefas concluídas
-                        except Exception as e:
-                            st.error(f"❌ Erro ao concluir tarefas: {e}")
-                else:
-                    st.warning("Selecione pelo menos uma tarefa para concluir.")
-        else:
-            if id_filtro:
-                st.info(f"Não existem alertas ou tarefas pendentes para o anúncio '{id_filtro}'.")
+                                            mask = (df_desp["F_Match"] == f_match) & (df_desp["NF_Match"] == nf_match) & (df_desp["P_Match"] == p_match)
+                                            indices = df_desp[mask].index.tolist()
+                                            
+                                            if indices:
+                                                linha_real = indices[0] + 2
+                                                sheet_despesas.update_cell(linha_real, idx_col_status, "Pago")
+                                                
+                                st.rerun() # Atualiza a tela limpando as tarefas concluídas
+                            except Exception as e:
+                                st.error(f"❌ Erro ao concluir tarefas: {e}")
+                    else:
+                        st.warning("Selecione pelo menos uma tarefa para concluir.")
             else:
-                st.success("✅ Excelente! Não há alertas nem tarefas pendentes no momento.")
+                st.info("Nenhuma tarefa encontrada com os filtros atuais.")
+        else:
+            st.success("✅ Excelente! Não há alertas nem tarefas pendentes no momento.")
 # =====================================================================
 # MÓDULO 2: CADASTRO DE FORNECEDOR
 # =====================================================================
@@ -1004,7 +1014,7 @@ if menu_selecionado == "Cadastro de Fornecedor":
         except: 
             st.info("Nenhum fornecedor registrado ainda.")
 # =====================================================================
-# MÓDULO DE CADASTRO DE ANÚNCIOS
+# MÓDULO 03: CADASTRO DE ANÚNCIOS
 # =====================================================================
 elif menu_selecionado == "Cadastro de Anúncios":
     import json
@@ -1094,7 +1104,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 atualizar_frete_automatico()
 
     def resetar_campos():
-        campos = ["id_anuncio", "cod_full", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "link_catalogo", "link_vendas", "link_promocoes", "medida", "peso", "fornecedor_produto"]
+        campos = ["id_anuncio", "cod_full", "sku", "nome_produto", "titulo", "ultima_atualizacao", "link_anuncio", "link_catalogo", "link_vendas", "link_promocoes", "medida", "peso", "fornecedor_produto", "nova_desc_tarefa", "nova_data_tarefa"]
         for c in campos: st.session_state[c] = ""
         st.session_state.custo = "0,00"
         st.session_state.preco = "0,00"
@@ -1518,10 +1528,10 @@ elif menu_selecionado == "Cadastro de Anúncios":
             with c_t3: 
                 st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
                 if st.button("➕ Adicionar Tarefa"):
-                    if nova_desc_tarefa.strip():
+                    if st.session_state.nova_desc_tarefa.strip():
                         st.session_state.tarefas_anuncio.append({
-                            "descricao": nova_desc_tarefa.strip(),
-                            "vencimento": nova_data_tarefa.strip(),
+                            "descricao": st.session_state.nova_desc_tarefa.strip(),
+                            "vencimento": st.session_state.nova_data_tarefa.strip(),
                             "status": "Pendente"
                         })
                         
@@ -1802,6 +1812,7 @@ elif menu_selecionado == "Cadastro de Produto":
     if "medida_kit" not in st.session_state: st.session_state.medida_kit = ""
     if "peso_kit" not in st.session_state: st.session_state.peso_kit = ""
 
+    # Limpeza reforçada de todas as chaves
     if st.session_state.limpar_produto:
         st.session_state.sku_p = ""
         st.session_state.nome_p = ""
@@ -1826,8 +1837,9 @@ elif menu_selecionado == "Cadastro de Produto":
         st.session_state.pesquisa_kit = ""
         st.session_state.sku_original_kit = ""
         st.session_state.num_componentes_kit = 1
+        
         for k in list(st.session_state.keys()):
-            if k.startswith("kit_sku_") or k.startswith("kit_qtd_") or k.startswith("kit_nome_") or k.startswith("kit_unit_") or k.startswith("kit_tot_"): 
+            if k.startswith("kit_sku_") or k.startswith("kit_qtd_") or k.startswith("kit_del_"): 
                 del st.session_state[k]
         st.session_state.limpar_produto = False
 
@@ -1967,7 +1979,7 @@ elif menu_selecionado == "Cadastro de Produto":
                 if not componentes.empty:
                     st.session_state.num_componentes_kit = len(componentes)
                     for k in list(st.session_state.keys()):
-                        if k.startswith("kit_sku_") or k.startswith("kit_qtd_"):
+                        if k.startswith("kit_sku_") or k.startswith("kit_qtd_") or k.startswith("kit_del_"):
                             del st.session_state[k]
                             
                     for i, (_, row) in enumerate(componentes.iterrows()):
@@ -1976,7 +1988,7 @@ elif menu_selecionado == "Cadastro de Produto":
                 else:
                     st.session_state.num_componentes_kit = 1
                     for k in list(st.session_state.keys()):
-                        if k.startswith("kit_sku_") or k.startswith("kit_qtd_"):
+                        if k.startswith("kit_sku_") or k.startswith("kit_qtd_") or k.startswith("kit_del_"):
                             del st.session_state[k]
         else:
             st.session_state.sku_original_kit = ""
@@ -2001,12 +2013,10 @@ elif menu_selecionado == "Cadastro de Produto":
                 if not componentes.empty:
                     st.session_state.num_componentes_kit = len(componentes)
                     
-                    # Limpa componentes antigos da memória
                     for k in list(st.session_state.keys()):
-                        if k.startswith("kit_sku_") or k.startswith("kit_qtd_"):
+                        if k.startswith("kit_sku_") or k.startswith("kit_qtd_") or k.startswith("kit_del_"):
                             del st.session_state[k]
                             
-                    # Carrega os componentes do banco para os campos
                     for i, (_, row) in enumerate(componentes.iterrows()):
                         st.session_state[f"kit_sku_{i}"] = str(row.get("SKU Componente", ""))
                         st.session_state[f"kit_qtd_{i}"] = int(converter_valor(row.get("Qtd", 1)))
@@ -2083,7 +2093,6 @@ elif menu_selecionado == "Cadastro de Produto":
             if st.session_state.historico_precos_p:
                 df_hist_precos = pd.DataFrame(st.session_state.historico_precos_p)
                 
-                # Inverte a ordem do DataFrame para exibir a alteração mais recente primeiro
                 df_hist_precos = df_hist_precos.iloc[::-1].reset_index(drop=True)
                 
                 df_hist_precos["Custo"] = df_hist_precos["Custo"].apply(lambda x: f"R$ {float(x):.2f}".replace('.', ','))
@@ -2188,10 +2197,50 @@ elif menu_selecionado == "Cadastro de Produto":
             with c_med_k: medida_kit = st.text_input("Medidas (Ex: 10x10x10)", key="medida_kit")
             with c_peso_k: peso_kit = st.text_input("Peso (kg)", key="peso_kit")
             
-            st.markdown("#### Componentes do Kit")
+            # --- LÓGICA DE EXCLUSÃO LIMPA PARA OS COMPONENTES ---
+            col_tit_kit, col_del_kit = st.columns([3, 1])
+            with col_tit_kit:
+                st.markdown("#### Componentes do Kit")
+                
+            def remover_componentes_selecionados():
+                to_delete = [i for i in range(st.session_state.num_componentes_kit) if st.session_state.get(f"kit_del_{i}", False)]
+                if not to_delete: return
+                
+                remaining = []
+                for i in range(st.session_state.num_componentes_kit):
+                    if i not in to_delete:
+                        remaining.append({
+                            "sku": st.session_state.get(f"kit_sku_{i}", ""),
+                            "qtd": st.session_state.get(f"kit_qtd_{i}", 1)
+                        })
+                
+                for i in range(st.session_state.num_componentes_kit):
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("kit_sku_") or k.startswith("kit_qtd_") or k.startswith("kit_del_"):
+                            if k.endswith(f"_{i}"):
+                                del st.session_state[k]
+                                
+                st.session_state.num_componentes_kit = len(remaining)
+                
+                if st.session_state.num_componentes_kit == 0:
+                    st.session_state.num_componentes_kit = 1
+                else:
+                    for i, data in enumerate(remaining):
+                        st.session_state[f"kit_sku_{i}"] = data["sku"]
+                        st.session_state[f"kit_qtd_{i}"] = data["qtd"]
+            
+            with col_del_kit:
+                st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+                if st.session_state.num_componentes_kit > 0:
+                    if st.button("🗑️ Excluir Selecionados", key="btn_del_comp"):
+                        remover_componentes_selecionados()
+                        st.rerun()
+
+            linhas_validas = []
             custo_total_kit = 0.0
             
-            c_sku, c_nome, c_qtd, c_unit, c_tot = st.columns([1.5, 2.5, 1, 1.2, 1.2])
+            c_chk, c_sku, c_nome, c_qtd, c_unit, c_tot = st.columns([0.5, 1.5, 2.5, 1, 1.2, 1.2])
+            c_chk.write("")
             c_sku.write("**SKU Componente**")
             c_nome.write("**Nome do Produto**")
             c_qtd.write("**Qtd**")
@@ -2199,13 +2248,19 @@ elif menu_selecionado == "Cadastro de Produto":
             c_tot.write("**Valor Total**")
             
             for i in range(st.session_state.num_componentes_kit):
-                c_sku, c_nome, c_qtd, c_unit, c_tot = st.columns([1.5, 2.5, 1, 1.2, 1.2])
+                c_chk, c_sku, c_nome, c_qtd, c_unit, c_tot = st.columns([0.5, 1.5, 2.5, 1, 1.2, 1.2])
+                
+                with c_chk:
+                    st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                    st.checkbox(" ", key=f"kit_del_{i}", label_visibility="collapsed")
+                    
                 with c_sku:
                     sku_comp = st.text_input(f"sku_{i}", key=f"kit_sku_{i}", label_visibility="collapsed")
                 
                 with c_qtd:
                     qtd_comp = st.number_input(f"qtd_{i}", min_value=1, value=1, step=1, key=f"kit_qtd_{i}", label_visibility="collapsed")
                 
+                # --- BUSCA INTELIGENTE EM TEMPO REAL ---
                 nome_comp = ""
                 custo_unit_comp = 0.0
                 
@@ -2214,22 +2269,24 @@ elif menu_selecionado == "Cadastro de Produto":
                     if prod_data is not None:
                         nome_comp = str(prod_data.get("Produto", ""))
                         custo_unit_comp = converter_valor(prod_data.get("Custo", 0))
+                        linhas_validas.append({
+                            "sku": sku_comp.strip(),
+                            "qtd": qtd_comp,
+                            "custo": custo_unit_comp
+                        })
                     else:
                         nome_comp = "⚠️ Produto não encontrado"
                 
                 total_comp = custo_unit_comp * qtd_comp
                 custo_total_kit += total_comp
                 
-                st.session_state[f"kit_nome_comp_{i}"] = nome_comp
-                st.session_state[f"kit_unit_comp_{i}"] = f"R$ {custo_unit_comp:.2f}".replace('.', ',')
-                st.session_state[f"kit_tot_comp_{i}"] = f"R$ {total_comp:.2f}".replace('.', ',')
-                        
+                # Passa os valores diretamente para o argumento 'value', libertando o 'key'
                 with c_nome:
-                    st.text_input(f"nome_{i}", disabled=True, key=f"kit_nome_comp_{i}", label_visibility="collapsed")
+                    st.text_input(f"nome_comp_{i}", value=nome_comp, disabled=True, label_visibility="collapsed")
                 with c_unit:
-                    st.text_input(f"unit_{i}", disabled=True, key=f"kit_unit_comp_{i}", label_visibility="collapsed")
+                    st.text_input(f"unit_comp_{i}", value=f"R$ {custo_unit_comp:.2f}".replace('.', ','), disabled=True, label_visibility="collapsed")
                 with c_tot:
-                    st.text_input(f"tot_{i}", disabled=True, key=f"kit_tot_comp_{i}", label_visibility="collapsed")
+                    st.text_input(f"tot_comp_{i}", value=f"R$ {total_comp:.2f}".replace('.', ','), disabled=True, label_visibility="collapsed")
             
             if st.button("➕ Adicionar outro produto ao kit"):
                 st.session_state.num_componentes_kit += 1
@@ -2245,7 +2302,7 @@ elif menu_selecionado == "Cadastro de Produto":
                 btn_excluir_kit = st.button("🗑️ Excluir Kit", key="btn_excluir_kit")
                 
             if btn_salvar_kit:
-                if sku_kit.strip() and nome_kit.strip() and custo_total_kit > 0:
+                if sku_kit.strip() and nome_kit.strip() and custo_total_kit > 0 and len(linhas_validas) > 0:
                     dados_kit_prod = {
                         "SKU": sku_kit.strip(), "Produto": nome_kit.strip(), "Custo": custo_total_kit,
                         "Fornecedor": "", "Data Ref": "", "EAN": "", "NCM": "", "CST": "", 
@@ -2276,15 +2333,16 @@ elif menu_selecionado == "Cadastro de Produto":
                                         sheet_kits.delete_rows(linha)
 
                             linhas_composicao = []
-                            for i in range(st.session_state.num_componentes_kit):
-                                sku_c = st.session_state.get(f"kit_sku_{i}", "").strip()
-                                qtd_c = st.session_state.get(f"kit_qtd_{i}", 1)
-                                if sku_c:
-                                    prod_data = buscar_produto_por_sku(sku_c)
-                                    if prod_data is not None:
-                                        unit_c = converter_valor(prod_data.get("Custo", 0))
-                                        tot_c = unit_c * qtd_c
-                                        linhas_composicao.append([sku_kit.strip(), nome_kit.strip(), sku_c, qtd_c, f"{unit_c:.2f}".replace('.', ','), f"{tot_c:.2f}".replace('.', ',')])
+                            for linha_valida in linhas_validas:
+                                tot_c = linha_valida["custo"] * linha_valida["qtd"]
+                                linhas_composicao.append([
+                                    sku_kit.strip(), 
+                                    nome_kit.strip(), 
+                                    linha_valida["sku"], 
+                                    linha_valida["qtd"], 
+                                    f"{linha_valida['custo']:.2f}".replace('.', ','), 
+                                    f"{tot_c:.2f}".replace('.', ',')
+                                ])
                             
                             if linhas_composicao: sheet_kits.append_rows(linhas_composicao, value_input_option="USER_ENTERED")
                             
@@ -2347,7 +2405,7 @@ elif menu_selecionado == "Cadastro de Produto":
                     hide_index=True 
                 )
             else:
-                st.info("Nenhum produto cadastrado até o momento.")                
+                st.info("Nenhum produto cadastrado até o momento.")
 # =====================================================================
 # MÓDULO 5: DESPESAS A PAGAR 
 # =====================================================================
