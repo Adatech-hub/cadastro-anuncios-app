@@ -202,8 +202,8 @@ menu_selecionado = st.sidebar.radio("Selecione a ferramenta:", [
     "ChatBot",
     "Fulfillment",
     "Tabela de Frete",
-    "Tabela de Armaz. (Full)" # <-- Adicionado aqui
-])
+    "Tabela de Armaz. (Full)"
+], key="menu_lateral") # <-- A CHAVE MÁGICA FOI ADICIONADA AQUI
 st.sidebar.markdown("---")
 # =====================================================================
 # FUNÇÕES DE SUPORTE E CONVERSÃO
@@ -813,6 +813,7 @@ if menu_selecionado == "Cadastro de Fornecedor":
     if "forn_end" not in st.session_state: st.session_state.forn_end = ""
     if "forn_vend" not in st.session_state: st.session_state.forn_vend = ""
     if "forn_tel" not in st.session_state: st.session_state.forn_tel = ""
+    if "forn_site" not in st.session_state: st.session_state.forn_site = ""
     
     def puxar_dados_fornecedor():
         pesquisa = st.session_state.get("forn_pesquisa", "")
@@ -835,6 +836,7 @@ if menu_selecionado == "Cadastro de Fornecedor":
                         st.session_state.forn_vend = str(row.get("Vendedor", ""))
                         # O replace tira o apóstrofo da visualização na sua tela
                         st.session_state.forn_tel = str(row.get("Telefone", "")).replace("'", "")
+                        st.session_state.forn_site = str(row.get("Site", ""))
             except: pass
         else:
             st.session_state.forn_original = ""
@@ -844,9 +846,10 @@ if menu_selecionado == "Cadastro de Fornecedor":
             st.session_state.forn_end = ""
             st.session_state.forn_vend = ""
             st.session_state.forn_tel = ""
+            st.session_state.forn_site = ""
 
     def limpar_fornecedor():
-        for k in ["forn_nome", "forn_cnpj", "forn_razao", "forn_end", "forn_vend", "forn_tel", "forn_original", "forn_pesquisa"]:
+        for k in ["forn_nome", "forn_cnpj", "forn_razao", "forn_end", "forn_vend", "forn_tel", "forn_site", "forn_original", "forn_pesquisa"]:
             if k in st.session_state:
                 del st.session_state[k]
 
@@ -886,6 +889,18 @@ if menu_selecionado == "Cadastro de Fornecedor":
         with c3: vend_forn = st.text_input("Nome do Vendedor / Contato", key="forn_vend")
         with c4: tel_forn = st.text_input("Telefone", key="forn_tel", placeholder="Ex: 85 996581537")
         
+        # Linha 5: Site do Fornecedor
+        c_site1, c_site2 = st.columns([4, 1])
+        with c_site1:
+            site_forn = st.text_input("🔗 Link do Site", key="forn_site", placeholder="Ex: https://www.fornecedor.com.br")
+        with c_site2:
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            link_site_atual = st.session_state.get("forn_site", "").strip()
+            if link_site_atual.startswith("http"):
+                st.markdown(f'''<a href="{link_site_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">Acessar Site 🔗</a>''', unsafe_allow_html=True)
+            else:
+                st.markdown('''<div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">Acessar Site 🔗</div>''', unsafe_allow_html=True)
+        
         st.markdown("<br>", unsafe_allow_html=True)
         col_btn1, col_btn2, col_vazio = st.columns([2, 2, 4])
         
@@ -902,42 +917,39 @@ if menu_selecionado == "Cadastro de Fornecedor":
                     
                     try: 
                         sheet = doc.worksheet("Fornecedores")
-                        if sheet.col_count < 6:
-                            sheet.add_cols(6 - sheet.col_count)
+                        if sheet.col_count < 7:
+                            sheet.add_cols(7 - sheet.col_count)
                         header = sheet.row_values(1)
                         if len(header) < 6 or header[5] != "Razão Social":
                             sheet.update_cell(1, 6, "Razão Social")
+                        if len(header) < 7 or header[6] != "Site":
+                            sheet.update_cell(1, 7, "Site")
                     except:
-                        sheet = doc.add_worksheet(title="Fornecedores", rows="1000", cols="6")
-                        sheet.append_row(["Nome do Fornecedor", "CNPJ", "Endereço", "Vendedor", "Telefone", "Razão Social"])
+                        sheet = doc.add_worksheet(title="Fornecedores", rows="1000", cols="7")
+                        sheet.append_row(["Nome do Fornecedor", "CNPJ", "Endereço", "Vendedor", "Telefone", "Razão Social", "Site"])
                     
                     nome_busca = st.session_state.get("forn_original", "").strip()
                     if not nome_busca:
                         nome_busca = nome_forn.strip()
                         
-                    # --- NOVA LÓGICA DE FORMATAÇÃO DE TELEFONE ---
+                    # --- LÓGICA DE FORMATAÇÃO DE TELEFONE ---
                     tel_raw = tel_forn.strip()
                     nums_tel = re.sub(r'\D', '', tel_raw)
                     
                     if nums_tel:
-                        # Remove o 55 inicial se a pessoa já o tiver digitado, para não duplicar
                         if nums_tel.startswith("55") and len(nums_tel) > 10:
                             nums_tel = nums_tel[2:]
-                            
-                        # Aplica a máscara +55 (DD) XXXXXXXX
                         if len(nums_tel) >= 10:
-                            # O apóstrofo (') no início impede que o Google Sheets leia o + como fórmula!
                             tel_formatado = f"'+55 ({nums_tel[:2]}) {nums_tel[2:]}"
                         else:
                             tel_formatado = f"'+55 {nums_tel}"
                     else:
-                        # Se não tiver números, envia o texto que estava (com o apóstrofo por segurança)
                         tel_formatado = f"'{tel_raw}" if tel_raw else ""
                     # ---------------------------------------------
                         
                     valores = [
                         nome_forn.strip(), cnpj_forn.strip(), end_forn.strip(), 
-                        vend_forn.strip(), tel_formatado, razao_forn.strip()
+                        vend_forn.strip(), tel_formatado, razao_forn.strip(), site_forn.strip()
                     ]
                     
                     df = pd.DataFrame(sheet.get_all_records())
@@ -947,7 +959,7 @@ if menu_selecionado == "Cadastro de Fornecedor":
                         df["Nome_Match"] = df["Nome do Fornecedor"].astype(str).str.strip()
                         if nome_busca in df["Nome_Match"].values:
                             idx = df[df["Nome_Match"] == nome_busca].index[0]
-                            sheet.update(range_name=f'A{idx+2}:F{idx+2}', values=[valores], value_input_option="USER_ENTERED")
+                            sheet.update(range_name=f'A{idx+2}:G{idx+2}', values=[valores], value_input_option="USER_ENTERED")
                             atualizado = True
                             
                     if not atualizado:
@@ -1003,13 +1015,21 @@ if menu_selecionado == "Cadastro de Fornecedor":
             
             if not df_forn.empty:
                # Reorganiza a ordem das colunas para exibição na tabela
-                ordem_colunas = ["Nome do Fornecedor", "Vendedor", "Telefone", "Endereço", "Razão Social", "CNPJ"]
+                ordem_colunas = ["Nome do Fornecedor", "Vendedor", "Telefone", "Site", "Endereço", "Razão Social", "CNPJ"]
                 
                 # Garante que só puxa as colunas que realmente existem para evitar erros
                 colunas_finais = [col for col in ordem_colunas if col in df_forn.columns]
                 df_forn = df_forn[colunas_finais]
                 
-                st.dataframe(df_forn, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    df_forn.style.set_properties(**{
+                        'background-color': '#F4F6F9',
+                        'color': '#1E1E1E',
+                        'border-color': '#E5E7EB'
+                    }),
+                    use_container_width=True, 
+                    hide_index=True
+                )
             else: 
                 st.info("Nenhum fornecedor registrado ainda.")
         except: 
@@ -1027,6 +1047,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
     
     def atualizar_frete_automatico():
         try:
+            # Puxa o peso da variação selecionada ativamente para o frete dinâmico
             peso_str = "0"
             var_escolhida = st.session_state.get("var_sim_escolhida", "")
             if var_escolhida:
@@ -1147,7 +1168,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
             st.session_state[f"var_an_peso_{idx}"] = ""
 
     def resetar_campos():
-        campos = ["id_anuncio", "titulo", "ultima_atualizacao", "link_anuncio", "link_catalogo", "link_promocoes", "link_ads", "nova_desc_tarefa", "nova_data_tarefa"]
+        campos = ["id_anuncio", "titulo", "ultima_atualizacao", "link_anuncio", "link_catalogo", "link_vendas", "link_promocoes", "link_ads", "nova_desc_tarefa", "nova_data_tarefa"]
         for c in campos: st.session_state[c] = ""
         st.session_state.preco = "0,00"
         st.session_state.desconto = 0.0
@@ -1180,6 +1201,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
     if "ultima_atualizacao" not in st.session_state: st.session_state.ultima_atualizacao = ""
     if "link_anuncio" not in st.session_state: st.session_state.link_anuncio = ""
     if "link_catalogo" not in st.session_state: st.session_state.link_catalogo = ""
+    if "link_vendas" not in st.session_state: st.session_state.link_vendas = ""
     if "link_promocoes" not in st.session_state: st.session_state.link_promocoes = ""
     if "link_ads" not in st.session_state: st.session_state.link_ads = ""
     if "otimizacoes" not in st.session_state: st.session_state.otimizacoes = ""
@@ -1220,6 +1242,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.titulo = str(row.get("Título", ""))
                 st.session_state.link_anuncio = str(row.get("Link do Anúncio", "")) if pd.notna(row.get("Link do Anúncio")) else ""
                 st.session_state.link_catalogo = str(row.get("Link do Catálogo", "")) if pd.notna(row.get("Link do Catálogo")) else ""
+                st.session_state.link_vendas = str(row.get("Link de Vendas", "")) if pd.notna(row.get("Link de Vendas")) else ""
                 st.session_state.link_promocoes = str(row.get("Link de Promoções", "")) if pd.notna(row.get("Link de Promoções")) else ""
                 st.session_state.link_ads = str(row.get("Link de ADS", "")) if pd.notna(row.get("Link de ADS")) else ""
                 
@@ -1244,12 +1267,16 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 if atacado_data:
                     st.session_state.num_atacado = len(atacado_data)
                     preco_orig_val = float(converter_valor(row.get("Preço Original", 0)))
+                    desc_pct_val = float(converter_valor(row.get("Desconto", 0)))
+                    preco_final_val = preco_orig_val * (1 - (desc_pct_val / 100.0))
+                    
                     for i, opt in enumerate(atacado_data):
                         if "desconto" in opt:
                             desc_hist = float(opt["desconto"])
                         elif "preco_unitario" in opt:
                             pu_hist = float(opt["preco_unitario"])
-                            desc_hist = ((preco_orig_val - pu_hist) / preco_orig_val * 100) if preco_orig_val > 0 else 0.0
+                            # Cálculo reverso agora usa a Venda Real como base
+                            desc_hist = ((preco_final_val - pu_hist) / preco_final_val * 100) if preco_final_val > 0 else 0.0
                         else:
                             desc_hist = 0.0
                             
@@ -1277,7 +1304,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 st.session_state.estado_original_anuncio = {
                     "Título": st.session_state.titulo,
                     "Preço Original": float(converter_valor(row.get("Preço Original", 0))),
-                    "Desconto": st.session_state.desconto,
+                    "Desconto Promo": st.session_state.desconto,
                     "Frete": float(converter_valor(row.get("Frete", 0))),
                     "Comissão": st.session_state.comissao,
                     "Custo Full": float(converter_valor(row.get("Taxa Fixa", 0))),
@@ -1286,6 +1313,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     "Imposto": st.session_state.imposto,
                     "Link": st.session_state.link_anuncio,
                     "Link Catálogo": st.session_state.link_catalogo,
+                    "Link Vendas": st.session_state.link_vendas,
                     "Link Promoções": st.session_state.link_promocoes,
                     "Link ADS": st.session_state.link_ads,
                     "Variações": vars_json,
@@ -1353,6 +1381,17 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     st.markdown(f'''<a href="{link_cat_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">Acessar Catálogo 🔗</a>''', unsafe_allow_html=True)
                 else:
                     st.markdown('''<div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">Acessar Catálogo 🔗</div>''', unsafe_allow_html=True)
+            
+            c_ven1, c_ven2 = st.columns([4, 1])
+            with c_ven1:
+                link_vendas_input = st.text_input("🔗 Link de Vendas", placeholder="Ex: https://vendas.mercadolivre.com.br/...", key="link_vendas")
+            with c_ven2:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                link_ven_atual = st.session_state.get("link_vendas", "").strip()
+                if link_ven_atual.startswith("http"):
+                    st.markdown(f'''<a href="{link_ven_atual}" target="_blank" style="display: block; text-align: center; background-color: rgba(116, 209, 234, 0.6); color: #250E62; padding: 7px 0; border-radius: 5px; text-decoration: none; font-weight: bold; border: 1px solid #74D1EA;">Acessar Vendas 🔗</a>''', unsafe_allow_html=True)
+                else:
+                    st.markdown('''<div style="display: block; text-align: center; background-color: #E5E7EB; color: #9CA3AF; padding: 7px 0; border-radius: 5px; font-weight: bold; border: 1px solid #D1D5DB; cursor: not-allowed;">Acessar Vendas 🔗</div>''', unsafe_allow_html=True)
                     
             c_pro1, c_pro2 = st.columns([4, 1])
             with c_pro1:
@@ -1418,7 +1457,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
             c_sku.write("**SKU**")
             c_idvar.write("**ID Variação**")
             c_prod.write("**Produto / Variação**")
-            c_cus.write("**Custo (R$)**")
+            c_cus.write("**CMV (R$)**")
             c_med.write("**Medidas**")
             c_pes.write("**Peso (kg)**")
 
@@ -1482,7 +1521,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
             
             col_preco, col_desc, col_final = st.columns(3)
             with col_preco: preco_original_str = st.text_input("Preço Original (R$)", key="preco", on_change=atualizar_frete_automatico)
-            with col_desc: porcentagem_desconto = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, step=0.1, key="desconto", on_change=atualizar_frete_automatico)
+            with col_desc: porcentagem_desconto = st.number_input("Desconto Promo (%)", min_value=0.0, max_value=100.0, step=0.1, key="desconto", on_change=atualizar_frete_automatico)
             
             preco_original = converter_valor(preco_original_str)
             preco_final = preco_original * (1 - (porcentagem_desconto / 100))
@@ -1571,7 +1610,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         st.session_state[f"atac_frete_{i}"] = "0,00"
                     st.text_input("Frete Unit. (R$)", key=f"atac_frete_{i}", on_change=processar_calculo_atacado, args=(f"atac_frete_{i}",))
                 
-                preco_unit_atac = preco_original * (1 - (desc_atac / 100))
+                # CALCULO REVISADO: PREÇO BASE = VENDA REAL
+                preco_unit_atac = preco_final * (1 - (desc_atac / 100))
                 
                 spc = "\u200B" * i
                 with c_pu_col:
@@ -1623,7 +1663,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
             denominador = preco_final if preco_final > 0 else 1.0
             valor_desconto = preco_original - preco_final
 
-            descricoes = ["Preço Original", "Desconto", "Preço Final", "Custo Produto", "Comissão", "Frete", "Imposto", "Custo Full", "TACOS", "Estorno", "LUCRO LÍQUIDO"]
+            descricoes = ["Preço Original", "Desconto Promo", "Preço Final", "CMV (Produto)", "Comissão", "Frete", "Imposto", "Custo Full", "TACOS", "Estorno", "LUCRO LÍQUIDO"]
             tipos = ["positivo", "negativo", "positivo", "negativo", "negativo", "negativo", "negativo", "negativo", "negativo", "positivo", "positivo"]
             valores = [preco_original, valor_desconto, preco_final, custo_produto, valor_comissao, custo_frete, valor_imposto, taxa_fixa_venda, valor_tacos, estorno_ml, lucro_liquido]
 
@@ -1659,7 +1699,8 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     unid_atac = st.session_state.get(f"atac_unid_{i}", 1)
                     frete_unit_atac = converter_valor(st.session_state.get(f"atac_frete_{i}", "0,00"))
                     
-                    preco_unit_atac = preco_original * (1 - (desc_atac / 100))
+                    # CALCULO REVISADO: PREÇO BASE = VENDA REAL
+                    preco_unit_atac = preco_final * (1 - (desc_atac / 100))
                     valor_total_atac = preco_unit_atac * unid_atac
                     frete_total_atac = frete_unit_atac * unid_atac
                     
@@ -1775,7 +1816,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     atacado_data = []
                     for i in range(st.session_state.get("num_atacado", 0)):
                         desc_val = float(st.session_state.get(f"atac_desc_{i}", 0.0))
-                        pu_val = preco_original * (1 - (desc_val / 100))
+                        pu_val = preco_final * (1 - (desc_val / 100))
                         atacado_data.append({
                             "preco_unitario": pu_val,
                             "desconto": desc_val,
@@ -1793,7 +1834,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                     campos_rastreados = {
                         "Título": titulo_anuncio,
                         "Preço Original": preco_original,
-                        "Desconto": porcentagem_desconto,
+                        "Desconto Promo": porcentagem_desconto,
                         "Frete": custo_frete,
                         "Comissão": comissao_mkt_porcentagem,
                         "Custo Full": taxa_fixa_venda,
@@ -1802,6 +1843,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         "Imposto": imposto_porcentagem,
                         "Link": link_anuncio_input,
                         "Link Catálogo": link_catalogo_input,
+                        "Link Vendas": link_vendas_input,
                         "Link Promoções": link_promocoes_input,
                         "Link ADS": link_ads_input,
                         "Variações": vars_json,
@@ -1867,7 +1909,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         "Otimizacoes": otimizacoes_texto,
                         "Tarefas Agendadas": tarefas_json,
                         "Link do Catálogo": link_catalogo_input,
-                        "Link de Vendas": "",
+                        "Link de Vendas": link_vendas_input,
                         "Link de Promoções": link_promocoes_input,
                         "Código do Full": "",
                         "Variações": vars_json,
@@ -1935,7 +1977,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                         "Preço Orig.": f"R$ {p_orig:.2f}".replace('.', ','),
                         "Desconto": f"{desc_pct:.2f}%".replace('.', ','),
                         "Preço Final": f"R$ {p_final:.2f}".replace('.', ','),
-                        "Custo Base (R$)": f"R$ {custo:.2f}".replace('.', ','),
+                        "CMV Base (R$)": f"R$ {custo:.2f}".replace('.', ','),
                         "Comis. (R$)": f"R$ {v_comiss:.2f}".replace('.', ','),
                         "Frete (R$)": f"R$ {frete:.2f}".replace('.', ','),
                         "Imposto (R$)": f"R$ {v_imp:.2f}".replace('.', ','),
@@ -1973,7 +2015,7 @@ elif menu_selecionado == "Cadastro de Anúncios":
                 else:
                     st.info("Nenhum anúncio com dados financeiros válidos encontrado.")
             else:
-                st.info("Nenhum anúncio cadastrado no sistema.")         
+                st.info("Nenhum anúncio cadastrado no sistema.")
 # =====================================================================
 # MÓDULO 4: CADASTRO DE PRODUTO & KITS
 # =====================================================================
@@ -1990,7 +2032,8 @@ elif menu_selecionado == "Cadastro de Produto":
 
     if "sku_p" not in st.session_state: st.session_state.sku_p = ""
     if "nome_p" not in st.session_state: st.session_state.nome_p = ""
-    if "custo_p" not in st.session_state: st.session_state.custo_p = "0,00"
+    if "preco_compra_p" not in st.session_state: st.session_state.preco_compra_p = "0,00"
+    if "imposto_compra_p" not in st.session_state: st.session_state.imposto_compra_p = "0,00"
     if "forn_p" not in st.session_state: st.session_state.forn_p = ""
     if "data_ref_p" not in st.session_state: st.session_state.data_ref_p = ""
     if "ean_p" not in st.session_state: st.session_state.ean_p = ""
@@ -2014,7 +2057,8 @@ elif menu_selecionado == "Cadastro de Produto":
         st.session_state.nome_p = ""
         st.session_state.pesquisa_produto = ""
         st.session_state.sku_original_p = ""
-        st.session_state.custo_p = "0,00"
+        st.session_state.preco_compra_p = "0,00"
+        st.session_state.imposto_compra_p = "0,00"
         st.session_state.forn_p = ""
         st.session_state.data_ref_p = ""
         st.session_state.ean_p = ""
@@ -2044,21 +2088,27 @@ elif menu_selecionado == "Cadastro de Produto":
 
     def salvar_produto_completo(dados, sku_orig=""):
         df = cached_produtos_data()
-        if df is None: df = pd.DataFrame(columns=["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição", "Historico_Precos"])
+        if df is None: df = pd.DataFrame()
         client = get_sheets_client()
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1Ql-cGoDMDy3KjO4K7RrocwAz-ICYj6QRn9YTLAPMzNQ/edit?gid=0#gid=0").worksheet("Produtos")
         
-        header = ["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição", "Historico_Precos"]
+        header_ideal = ["SKU", "Produto", "Custo", "Fornecedor", "Data de Referência", "EAN", "NCM", "CST", "Medida", "Peso", "Campo Semântico", "Características/Descrição", "Historico_Precos", "Preço de Compra", "Imposto de Compra"]
         
-        if sheet.col_count < 13: sheet.add_cols(13 - sheet.col_count)
-        if sheet.row_values(1) != header: sheet.update(range_name='A1:M1', values=[header], value_input_option="USER_ENTERED")
+        if sheet.col_count < 15: sheet.add_cols(15 - sheet.col_count)
+        
+        header_atual = sheet.row_values(1)
+        for i, h in enumerate(header_ideal):
+            if i >= len(header_atual) or header_atual[i] != h:
+                sheet.update_cell(1, i+1, h)
             
         valores_formatados = [
             str(dados.get("SKU", "")).strip(), str(dados.get("Produto", "")).strip(), f"{dados.get('Custo', 0):.2f}".replace('.', ','),
             str(dados.get("Fornecedor", "")).strip(), str(dados.get("Data Ref", "")).strip(), str(dados.get("EAN", "")).strip(),
             str(dados.get("NCM", "")).strip(), str(dados.get("CST", "")).strip(), str(dados.get("Medida", "")).strip(),
             str(dados.get("Peso", "")).strip(), str(dados.get("Campo_Semantico", "")).strip(), str(dados.get("Descricao", "")).strip(),
-            str(dados.get("Historico_Precos", "")).strip()
+            str(dados.get("Historico_Precos", "")).strip(),
+            f"{dados.get('Preco_Compra', 0):.2f}".replace('.', ','),
+            f"{dados.get('Imposto_Compra', 0):.2f}".replace('.', ',')
         ]
         
         if not df.empty and "SKU" in df.columns:
@@ -2073,7 +2123,7 @@ elif menu_selecionado == "Cadastro de Produto":
                     st.error(f"❌ O SKU '{sku_novo}' já está em uso por outro produto! Escolha um código diferente.")
                     return False
                     
-                sheet.update(range_name=f'A{idx+2}:M{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
+                sheet.update(range_name=f'A{idx+2}:O{idx+2}', values=[valores_formatados], value_input_option="USER_ENTERED")
                 st.cache_data.clear() 
                 return True
                 
@@ -2117,9 +2167,13 @@ elif menu_selecionado == "Cadastro de Produto":
         st.cache_data.clear()
         return True
 
-    def processar_calculo_custo_produto():
-        val = avaliar_expressao_matematica(st.session_state.custo_p)
-        if val is not None: st.session_state.custo_p = f"{val:.2f}".replace('.', ',')
+    def processar_calculo_preco_compra():
+        val = avaliar_expressao_matematica(st.session_state.preco_compra_p)
+        if val is not None: st.session_state.preco_compra_p = f"{val:.2f}".replace('.', ',')
+        
+    def processar_calculo_imposto():
+        val = avaliar_expressao_matematica(st.session_state.imposto_compra_p)
+        if val is not None: st.session_state.imposto_compra_p = f"{val:.2f}".replace('.', ',')
 
     def get_lista_pesquisa_produtos():
         df = cached_produtos_data()
@@ -2138,7 +2192,15 @@ elif menu_selecionado == "Cadastro de Produto":
                 st.session_state.sku_original_p = str(info_prod.get("SKU", ""))
                 st.session_state.sku_p = str(info_prod.get("SKU", ""))
                 st.session_state.nome_p = str(info_prod.get("Produto", ""))
-                st.session_state.custo_p = formatar_moeda_ui(info_prod.get("Custo", 0))
+                
+                # Salvaguarda para produtos antigos onde o Custo era o Preço de Compra
+                preco_comp = converter_valor(info_prod.get("Preço de Compra", 0))
+                if preco_comp == 0 and converter_valor(info_prod.get("Custo", 0)) > 0:
+                    preco_comp = converter_valor(info_prod.get("Custo", 0))
+                    
+                st.session_state.preco_compra_p = formatar_moeda_ui(preco_comp)
+                st.session_state.imposto_compra_p = formatar_moeda_ui(info_prod.get("Imposto de Compra", 0))
+                
                 st.session_state.forn_p = str(info_prod.get("Fornecedor", ""))
                 st.session_state.data_ref_p = converter_data_sheets(info_prod.get("Data de Referência", ""))
                 st.session_state.ean_p = str(info_prod.get("EAN", ""))
@@ -2219,6 +2281,11 @@ elif menu_selecionado == "Cadastro de Produto":
                     for i, (_, row) in enumerate(componentes.iterrows()):
                         st.session_state[f"kit_sku_{i}"] = str(row.get("SKU Componente", ""))
                         st.session_state[f"kit_qtd_{i}"] = int(converter_valor(row.get("Qtd", 1)))
+                        
+    def normalizar_id_prod(valor):
+        v = str(valor).strip().replace("'", "")
+        if v.endswith(".0"): return v[:-2]
+        return v
 
     col_vazia1, col_conteudo, col_vazia2 = st.columns([0.2, 4, 0.2])
     with col_conteudo:
@@ -2272,7 +2339,7 @@ elif menu_selecionado == "Cadastro de Produto":
             with c7: medida_produto = st.text_input("Medida (Ex: 10x10x10)", key="medida_p")
             with c8: peso_produto = st.text_input("Peso do produto (kg)", key="peso_p")
             
-            c9, c10, c11 = st.columns(3)
+            c9, c10, c11, c12, c13 = st.columns([1.5, 1, 1, 1, 1])
             with c9: 
                 lista_forns = get_lista_fornecedores()
                 if not lista_forns: 
@@ -2284,18 +2351,83 @@ elif menu_selecionado == "Cadastro de Produto":
                 idx_forn = lista_forns.index(forn_atual) if forn_atual in lista_forns else 0
                 nome_fornecedor = st.selectbox("Nome do Fornecedor", options=lista_forns, index=idx_forn, key="forn_p")
             with c10: 
-                custo_p_str = st.text_input("Preço de Custo Padrão (R$)", key="custo_p", on_change=processar_calculo_custo_produto, help="Aceita cálculos! Ex: 10+5*2 ou 21,12-2,5%")
-                v_custo_p = converter_valor(st.session_state.custo_p)
-            with c11: 
-                data_ref_preco = st.text_input("Data de Referência do Preço de Custo", placeholder="Ex: 03/07/2026", key="data_ref_p")
+                preco_compra_p_str = st.text_input("Preço de Compra (R$)", key="preco_compra_p", on_change=processar_calculo_preco_compra)
+                v_preco_compra = converter_valor(st.session_state.preco_compra_p)
+            with c11:
+                imposto_compra_p_str = st.text_input("Imposto (%)", key="imposto_compra_p", on_change=processar_calculo_imposto)
+                v_imposto_pct = converter_valor(st.session_state.imposto_compra_p)
+            with c12:
+                v_cmv_p = v_preco_compra * (1 + (v_imposto_pct / 100.0))
+                st.text_input("CMV (R$)", value=f"{v_cmv_p:.2f}".replace('.', ','), disabled=True)
+            with c13: 
+                data_ref_preco = st.text_input("Data Referência", placeholder="Ex: 03/07/2026", key="data_ref_p")
                 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            campo_semantico = st.text_area("Campo Semântico (Palavras-chave SEO para buscas)", key="campo_sem_p", height=100)
+            campo_semantico = st.text_area("Campo Semântico (Palavras-chave SEO para buscas)", key="campo_sem_p", height=250)
             desc_produto = st.text_area("Características, Benefícios e Informações do Produto (Para Anúncios)", key="desc_p", height=400)
             
+            # --- NOVA SEÇÃO: ANÚNCIOS VINCULADOS ---
             st.markdown("---")
-            st.subheader("📉 Histórico de Preços")
+            st.subheader("📢 Anúncios Vinculados a este Produto")
+            
+            anuncios_vinculados = []
+            if sku_p.strip():
+                df_anuncios = carregar_repositorio_anuncios()
+                if df_anuncios is not None and not df_anuncios.empty:
+                    for _, row in df_anuncios.iterrows():
+                        id_an = normalizar_id_prod(row.get("ID do Anúncio", ""))
+                        tit = str(row.get("Título", "")).strip()
+                        
+                        legacy_sku = str(row.get("SKU", "")).strip()
+                        encontrou = False
+                        var_id_exibir = "-"
+                        
+                        if legacy_sku.upper() == sku_p.strip().upper():
+                            encontrou = True
+                        else:
+                            raw_vars = row.get("Variações", "[]")
+                            vars_json = str(raw_vars) if pd.notna(raw_vars) else "[]"
+                            try:
+                                vars_data = json.loads(vars_json) if vars_json.strip() else []
+                                for v in vars_data:
+                                    if str(v.get("sku", "")).strip().upper() == sku_p.strip().upper():
+                                        encontrou = True
+                                        var_id_exibir = str(v.get("id_var", "")).strip() or "-"
+                                        break
+                            except:
+                                pass
+                                
+                        if encontrou and id_an:
+                            anuncios_vinculados.append({"ID": id_an, "Var_ID": var_id_exibir, "Titulo": tit})
+            
+            if anuncios_vinculados:
+                c1_an, c2_an, c3_an, c4_an = st.columns([1.5, 1.5, 4, 1.5])
+                c1_an.write("**ID Anúncio**")
+                c2_an.write("**ID Variação**")
+                c3_an.write("**Título do Anúncio**")
+                c4_an.write("**Ação**")
+                st.markdown("---")
+                
+                def ir_para_anuncio(id_alvo, tit_alvo):
+                    st.session_state.pesquisa_anuncio = f"{id_alvo} | {tit_alvo}"
+                    st.session_state.ultimo_id_carregado = "" 
+                    st.session_state.menu_lateral = "Cadastro de Anúncios"
+                
+                for idx_an, an in enumerate(anuncios_vinculados):
+                    c1_an, c2_an, c3_an, c4_an = st.columns([1.5, 1.5, 4, 1.5])
+                    c1_an.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{an['ID']}</div>", unsafe_allow_html=True)
+                    c2_an.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{an['Var_ID']}</div>", unsafe_allow_html=True)
+                    c3_an.markdown(f"<div style='margin-top: 5px; color: #1E1E1E;'>{an['Titulo']}</div>", unsafe_allow_html=True)
+                    c4_an.button("✏️ Editar Anúncio", key=f"abrir_an_{an['ID']}_{idx_an}", on_click=ir_para_anuncio, args=(an['ID'], an['Titulo']))
+            else:
+                if sku_p.strip():
+                    st.info("Nenhum anúncio vinculado a este produto na base de dados.")
+                else:
+                    st.info("Pesquise um produto acima para visualizar os anúncios em que ele está a ser vendido.")
+            
+            st.markdown("---")
+            st.subheader("📉 Histórico de Preços (CMV)")
             
             if st.session_state.historico_precos_p:
                 df_hist_precos = pd.DataFrame(st.session_state.historico_precos_p)
@@ -2303,6 +2435,8 @@ elif menu_selecionado == "Cadastro de Produto":
                 df_hist_precos = df_hist_precos.iloc[::-1].reset_index(drop=True)
                 
                 df_hist_precos["Custo"] = df_hist_precos["Custo"].apply(lambda x: f"R$ {float(x):.2f}".replace('.', ','))
+                df_hist_precos = df_hist_precos.rename(columns={"Custo": "CMV Registado"})
+                
                 st.dataframe(
                         df_hist_precos.style.set_properties(**{
                         'background-color': '#F4F6F9',
@@ -2324,28 +2458,29 @@ elif menu_selecionado == "Cadastro de Produto":
                 btn_excluir = st.button("🗑️ Excluir Produto", key="btn_excluir_simples")
                 
             if btn_salvar:
-                if sku_p.strip() and nome_p.strip() and v_custo_p > 0:
+                if sku_p.strip() and nome_p.strip() and v_cmv_p > 0:
                     
                     hist_list = st.session_state.get("historico_precos_p", []).copy()
                     novo_forn = nome_fornecedor if "⚠️" not in nome_fornecedor else ""
                     
                     if not hist_list:
-                        hist_list.append({"Data": data_ref_preco, "Fornecedor": novo_forn, "Custo": v_custo_p, "Variação": "0,00%"})
+                        hist_list.append({"Data": data_ref_preco, "Fornecedor": novo_forn, "Custo": v_cmv_p, "Variação": "0,00%"})
                     else:
                         last_record = hist_list[-1]
-                        if last_record.get("Custo") != v_custo_p or last_record.get("Fornecedor") != novo_forn or last_record.get("Data") != data_ref_preco:
+                        if last_record.get("Custo") != v_cmv_p or last_record.get("Fornecedor") != novo_forn or last_record.get("Data") != data_ref_preco:
                             old_custo = float(last_record.get("Custo", 0))
                             if old_custo > 0:
-                                var_pct = ((v_custo_p - old_custo) / old_custo) * 100
+                                var_pct = ((v_cmv_p - old_custo) / old_custo) * 100
                                 var_str = f"🔺 +{var_pct:.2f}%" if var_pct > 0 else (f"🔻 {var_pct:.2f}%" if var_pct < 0 else "0,00%")
                             else:
                                 var_str = "0,00%"
-                            hist_list.append({"Data": data_ref_preco, "Fornecedor": novo_forn, "Custo": v_custo_p, "Variação": var_str.replace('.', ',')})
+                            hist_list.append({"Data": data_ref_preco, "Fornecedor": novo_forn, "Custo": v_cmv_p, "Variação": var_str.replace('.', ',')})
                     
                     historico_json = json.dumps(hist_list)
                     
                     dados_prod = {
-                        "SKU": sku_p, "Produto": nome_p, "Custo": v_custo_p,
+                        "SKU": sku_p, "Produto": nome_p, "Custo": v_cmv_p,
+                        "Preco_Compra": v_preco_compra, "Imposto_Compra": v_imposto_pct,
                         "Fornecedor": novo_forn, 
                         "Data Ref": data_ref_preco, "EAN": ean_produto, "NCM": ncm_produto, 
                         "CST": cst_produto, "Medida": medida_produto, "Peso": peso_produto,
@@ -2360,7 +2495,7 @@ elif menu_selecionado == "Cadastro de Produto":
                             st.session_state.limpar_produto = True
                             st.rerun() 
                     except Exception as e: st.error(f"❌ Erro ao gravar produto: {e}")
-                else: st.error("❌ Por favor, preencha os campos obrigatórios (SKU, Nome, Preço de Custo).")
+                else: st.error("❌ Por favor, preencha os campos obrigatórios (SKU, Nome, Preço de Compra e Imposto que geram o CMV).")
                 
             if btn_excluir:
                 sku_original = st.session_state.get("sku_original_p", "")
@@ -2452,8 +2587,8 @@ elif menu_selecionado == "Cadastro de Produto":
             c_sku.write("**SKU Componente**")
             c_nome.write("**Nome do Produto**")
             c_qtd.write("**Qtd**")
-            c_unit.write("**Valor Unit.**")
-            c_tot.write("**Valor Total**")
+            c_unit.write("**CMV Unit.**")
+            c_tot.write("**CMV Total**")
             
             for i in range(st.session_state.num_componentes_kit):
                 c_chk, c_sku, c_nome, c_qtd, c_unit, c_tot = st.columns([0.5, 1.5, 2.5, 1, 1.2, 1.2])
@@ -2501,7 +2636,7 @@ elif menu_selecionado == "Cadastro de Produto":
                 st.rerun()
                 
             st.markdown("---")
-            st.metric("Custo Total do Kit", f"R$ {custo_total_kit:.2f}".replace('.', ','))
+            st.metric("CMV Total do Kit", f"R$ {custo_total_kit:.2f}".replace('.', ','))
             
             col_btn1_k, col_btn2_k, col_vazio_k = st.columns([2, 2, 6])
             with col_btn1_k:
@@ -2513,6 +2648,7 @@ elif menu_selecionado == "Cadastro de Produto":
                 if sku_kit.strip() and nome_kit.strip() and custo_total_kit > 0 and len(linhas_validas) > 0:
                     dados_kit_prod = {
                         "SKU": sku_kit.strip(), "Produto": nome_kit.strip(), "Custo": custo_total_kit,
+                        "Preco_Compra": 0.0, "Imposto_Compra": 0.0,
                         "Fornecedor": "", "Data Ref": "", "EAN": "", "NCM": "", "CST": "", 
                         "Medida": medida_kit.strip(), 
                         "Peso": peso_kit.strip(), 
@@ -2593,12 +2729,13 @@ elif menu_selecionado == "Cadastro de Produto":
                     df_display["Data de Referência"] = df_display["Data de Referência"].apply(converter_data_sheets)
                     
                 if "Custo" in df_display.columns:
-                    df_display["Custo"] = df_display["Custo"].apply(
+                    df_display = df_display.rename(columns={"Custo": "CMV"})
+                    df_display["CMV"] = df_display["CMV"].apply(
                         lambda x: f"R$ {float(converter_valor(x)):.2f}".replace('.', ',') if pd.notna(x) and str(x).strip() != "" else ""
                     )
                     
                 cols = df_display.columns.tolist()
-                colunas_base = ["SKU", "Produto", "Fornecedor", "Custo", "Data de Referência"]
+                colunas_base = ["SKU", "Produto", "Fornecedor", "CMV", "Data de Referência"]
                 colunas_restantes = [c for c in cols if c not in colunas_base and c not in ["Historico_Precos", "Características/Descrição"]]
                 
                 ordem_final = colunas_base + colunas_restantes
